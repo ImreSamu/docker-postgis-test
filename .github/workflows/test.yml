@@ -10,14 +10,22 @@ on:
   schedule:
     - cron: '15 13 * * *'
 
+# ============================================================================
+# FOR FORKING: Modify these settings in your forked repository
+# ============================================================================
+env:
+  DOCKERHUB_REPO: imresamu/docker-postgis-test  # Change to your DockerHub repo
+  GITHUB_REPO: ImreSamu/docker-postgis-test     # Change to your GitHub repo
+  LATEST_DEFAULT_VERSION: 17-3.5                # Default version to tag as 'latest' (multi-arch)
+#
+# Also add these secrets in your repository settings:
+#   - secrets.DOCKERHUB_USERNAME
+#   - secrets.DOCKERHUB_ACCESS_TOKEN
+# ============================================================================
 
 defaults:
   run:
     shell: bash
-
-env:
-  DOCKERHUB_REPO: imresamu/docker-postgis-test
-  GITHUB_REPO: ImreSamu/docker-postgis-test
 
 jobs:
 
@@ -106,7 +114,10 @@ jobs:
     env:
       VERSION: ${{ matrix.postgres }}-${{ matrix.postgis }}
       VARIANT: ${{ matrix.variant }}
-      CI_IMAGE_TAG: postgisXXX/postgis:ci-${{ github.run_id }}-${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }}-${{ contains(matrix.runner-platform, 'arm') && 'arm' || 'x64' }}
+      # the "postgis/postgis" name is the expected test name; ( via ./test/postgis-config.sh )
+      # changing it will break the official-images test script
+      # this is only for CI test and not for Docker hub publishing
+      CI_IMAGE_TAG: postgis/postgis:ci-${{ github.run_id }}-${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }}-${{ contains(matrix.runner-platform, 'arm') && 'arm' || 'x64' }}
 
     steps:
     - name: Checkout source
@@ -142,7 +153,7 @@ jobs:
         if ! grep -q "'postgres-basics'.*passed" test.log || \
            ! grep -q "'postgres-initdb'.*passed" test.log || \
            ! grep -q "'postgis-basics'.*passed" test.log; then
-          echo "ERROR: Required PostGIS tests did not pass!"
+          echo "ERROR: Required postgres/postgis tests did not pass!"
           exit 1
         fi
         echo "✓ All required tests passed"
@@ -238,6 +249,8 @@ jobs:
           ${{ env.DOCKERHUB_REPO }}
         tags: |
           type=raw,value=${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '-alpine' || ''}}
+          # Create 'latest' tag only for LATEST_DEFAULT_VERSION with default variant (multi-arch: amd64+arm64)
+          type=raw,value=latest,enable=${{ env.VERSION == env.LATEST_DEFAULT_VERSION && env.VARIANT == 'default' }}
 
     - name: Create manifest list and push
       working-directory: ${{ runner.temp }}/digests
