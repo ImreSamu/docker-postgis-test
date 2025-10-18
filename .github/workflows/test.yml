@@ -28,7 +28,7 @@ jobs:
     # This allows fork-friendly configuration: forks can override values using Repository Variables,
     # while the original repository uses the defaults defined in top-level 'env'.
     # The SHOULD_PUBLISH flag centralizes the complex publishing condition in one place.
-    name: Resolve constants
+    name: Init
     runs-on: ubuntu-latest
     outputs:
       CANONICAL_REPO: ${{ steps.set.outputs.CANONICAL_REPO }}
@@ -100,12 +100,13 @@ jobs:
             variant: default
             runner-platform: 'ubuntu-24.04-arm'
 
-    name: ${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }} ${{ matrix.runner-platform }} - Build Docker image
+    name: "B:${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }} (${{ contains(matrix.runner-platform, 'arm') && 'arm64' || 'x86-64' }}) - Build Docker image"
     runs-on: ${{ matrix.runner-platform }}
     continue-on-error: ${{ matrix.postgis == 'master' }}
     env:
       VERSION: ${{ matrix.postgres }}-${{ matrix.postgis }}
       VARIANT: ${{ matrix.variant }}
+      CI_IMAGE_TAG: postgis/postgis:ci-${{ github.run_id }}-${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }}-${{ contains(matrix.runner-platform, 'arm') && 'arm' || 'x64' }}
 
     steps:
     - name: Checkout source
@@ -120,6 +121,7 @@ jobs:
       with:
         context: ${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '/alpine' || ''}}
         file: ${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '/alpine' || ''}}/Dockerfile
+        tags: ${{ env.CI_IMAGE_TAG }}
         load: true
         push: false  # don't push until after testing
 
@@ -133,7 +135,7 @@ jobs:
 
     - name: Run official-images test script
       run: |
-        ./official-images/test/run.sh -c ./official-images/test/config.sh -c test/postgis-config.sh ${{ steps.build.outputs.imageid }}
+        ./official-images/test/run.sh -c ./official-images/test/config.sh -c test/postgis-config.sh "$CI_IMAGE_TAG"
 
     - name: Login to dockerhub
       id: login-dockerhub
@@ -169,7 +171,7 @@ jobs:
         retention-days: 10
 
   merge-manifests:
-    name: Merge manifests and push to DockerHub
+    name: "P:${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }} - Merge manifests and push to DockerHub"
     needs: [constants, make-docker-images]
     runs-on: ubuntu-24.04-arm  # Always on arm, because why not
     if: ${{ needs.constants.outputs.SHOULD_PUBLISH == 'true' }}
