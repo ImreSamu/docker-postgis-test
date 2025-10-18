@@ -1,5 +1,8 @@
 name: TEST - Docker PostGIS CI
 
+# testing : https://github.com/postgis/docker-postgis/pull/432
+# original author: https://github.com/BowlesCR
+
 on:
   push:
   pull_request:
