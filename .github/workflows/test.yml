@@ -100,7 +100,7 @@ jobs:
             variant: default
             runner-platform: 'ubuntu-24.04-arm'
 
-    name: "B:${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }} (${{ contains(matrix.runner-platform, 'arm') && 'arm64' || 'x86-64' }}) - Build Docker image"
+    name: "Build:${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }} (${{ contains(matrix.runner-platform, 'arm') && 'arm64' || 'x86-64' }}) Docker image"
     runs-on: ${{ matrix.runner-platform }}
     continue-on-error: ${{ matrix.postgis == 'master' }}
     env:
@@ -135,7 +135,17 @@ jobs:
 
     - name: Run official-images test script
       run: |
-        ./official-images/test/run.sh -c ./official-images/test/config.sh -c test/postgis-config.sh "$CI_IMAGE_TAG"
+        ./official-images/test/run.sh -c ./official-images/test/config.sh -c test/postgis-config.sh "$CI_IMAGE_TAG" | tee test.log
+
+    - name: Verify test results
+      run: |
+        if ! grep -q "'postgres-basics'.*passed" test.log || \
+           ! grep -q "'postgres-initdb'.*passed" test.log || \
+           ! grep -q "'postgis-basics'.*passed" test.log; then
+          echo "ERROR: Required PostGIS tests did not pass!"
+          exit 1
+        fi
+        echo "✓ All required tests passed"
 
     - name: Login to dockerhub
       id: login-dockerhub
@@ -171,7 +181,7 @@ jobs:
         retention-days: 10
 
   merge-manifests:
-    name: "P:${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }} - Merge manifests and push to DockerHub"
+    name: "Merge:${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }} manifests and push to DockerHub"
     needs: [constants, make-docker-images]
     runs-on: ubuntu-24.04-arm  # Always on arm, because why not
     if: ${{ needs.constants.outputs.SHOULD_PUBLISH == 'true' }}
