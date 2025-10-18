@@ -38,13 +38,13 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v5
 
-#    - name: Prepare README with prefix
-#      run: |
-#        if [ -n "${{ env.DOCKERHUB_README_PREFIX }}" ]; then
-#          echo -e "${{ env.DOCKERHUB_README_PREFIX }}" > /tmp/dockerhub-readme.md
-#          cat README.md >> /tmp/dockerhub-readme.md
-#          mv /tmp/dockerhub-readme.md README.md
-#        fi
+    - name: Prepare README with prefix
+      run: |
+        if [ -n "${{ env.DOCKERHUB_README_PREFIX }}" ]; then
+          echo -e "${{ env.DOCKERHUB_README_PREFIX }}" > /tmp/dockerhub-readme.md
+          cat README.md >> /tmp/dockerhub-readme.md
+          mv /tmp/dockerhub-readme.md README.md
+        fi
 
     - name: Update Docker Hub Description
       uses: peter-evans/dockerhub-description@v5
@@ -52,8 +52,8 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
         repository: ${{ env.DOCKERHUB_REPO }}
-#        short-description: ${{ env.DOCKERHUB_SHORT_DESCRIPTION }}
-#        readme-filepath: ./README.md
+        short-description: "${{ env.DOCKERHUB_SHORT_DESCRIPTION }}"
+        readme-filepath: ./README.md
 
   constants:
     # This job resolves configuration constants that can be used in job-level and step-level 'if' conditions.
