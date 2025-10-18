@@ -106,7 +106,7 @@ jobs:
     env:
       VERSION: ${{ matrix.postgres }}-${{ matrix.postgis }}
       VARIANT: ${{ matrix.variant }}
-      CI_IMAGE_TAG: postgis/postgis:ci-${{ github.run_id }}-${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }}-${{ contains(matrix.runner-platform, 'arm') && 'arm' || 'x64' }}
+      CI_IMAGE_TAG: postgisXXX/postgis:ci-${{ github.run_id }}-${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }}-${{ contains(matrix.runner-platform, 'arm') && 'arm' || 'x64' }}
 
     steps:
     - name: Checkout source
