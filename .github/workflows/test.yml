@@ -6,8 +6,10 @@ name: TEST - Docker PostGIS CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
   schedule:
     - cron: '15 13 * * *'
+
 
 defaults:
   run:
@@ -18,7 +20,37 @@ env:
   GITHUB_REPO: ImreSamu/docker-postgis-test
 
 jobs:
+
+  constants:
+    # This job resolves configuration constants that can be used in job-level and step-level 'if' conditions.
+    # GitHub Actions 'if' conditions cannot access top-level 'env' variables directly,
+    # so we compute them here and expose them as job outputs.
+    # This allows fork-friendly configuration: forks can override values using Repository Variables,
+    # while the original repository uses the defaults defined in top-level 'env'.
+    # The SHOULD_PUBLISH flag centralizes the complex publishing condition in one place.
+    name: Resolve constants
+    runs-on: ubuntu-latest
+    outputs:
+      CANONICAL_REPO: ${{ steps.set.outputs.CANONICAL_REPO }}
+      SHOULD_PUBLISH: ${{ steps.set.outputs.SHOULD_PUBLISH }}
+    steps:
+      - id: set
+        env:
+          VAR_CANONICAL: ${{ vars.CANONICAL_REPO }}
+        run: |
+          CANONICAL_REPO="${VAR_CANONICAL:-$GITHUB_REPO}"
+          echo "CANONICAL_REPO=$CANONICAL_REPO" >> "$GITHUB_OUTPUT"
+
+          # Compute if we should publish
+          if [[ "${{ github.repository }}" == "$CANONICAL_REPO" ]] && \
+             [[ "${{ github.ref }}" == "refs/heads/master" ]] && \
+             [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "SHOULD_PUBLISH=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "SHOULD_PUBLISH=false" >> "$GITHUB_OUTPUT"
+          fi
   make-docker-images:
+    needs: constants
     strategy:
       matrix:
         runner-platform: ['ubuntu-24.04', 'ubuntu-24.04-arm']
@@ -106,7 +138,7 @@ jobs:
     - name: Login to dockerhub
       id: login-dockerhub
       uses: docker/login-action@v3
-      if: ${{ (github.repository == env.GITHUB_REPO) && (github.ref == 'refs/heads/master') && (github.event_name != 'pull_request') }}
+      if: ${{ needs.constants.outputs.SHOULD_PUBLISH == 'true' }}
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
@@ -114,19 +146,21 @@ jobs:
     - name: Push image by digest
       id: push
       uses: docker/build-push-action@v5  # Build is cached, this is really just a push
-      if: ${{ (github.repository == env.GITHUB_REPO) && (github.ref == 'refs/heads/master') && (github.event_name != 'pull_request') }}
+      if: ${{ needs.constants.outputs.SHOULD_PUBLISH == 'true' && steps.login-dockerhub.outcome == 'success' }}
       with:
         context: ${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '/alpine' || ''}}
         file: ${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '/alpine' || ''}}/Dockerfile
         outputs: type=image,"name=${{ env.DOCKERHUB_REPO }}",push-by-digest=true,name-canonical=true,push=true
 
     - name: Export digest
+      if: ${{ steps.push.outcome == 'success' }}
       run: |
         mkdir -p ${{ runner.temp }}/digests
         digest="${{ steps.push.outputs.digest }}"
         touch "${{ runner.temp }}/digests/${digest#sha256:}"
 
     - name: Upload digests
+      if: ${{ steps.push.outcome == 'success' }}
       uses: actions/upload-artifact@v4
       with:
         name: digests-${{ env.VERSION }}-${{ env.VARIANT }}-${{ matrix.runner-platform }}
@@ -136,9 +170,10 @@ jobs:
 
   merge-manifests:
     name: Merge manifests and push to DockerHub
-    needs: make-docker-images
+    needs: [constants, make-docker-images]
     runs-on: ubuntu-24.04-arm  # Always on arm, because why not
-    if: ${{ (github.repository == env.GITHUB_REPO) && (github.ref == 'refs/heads/master') && (github.event_name != 'pull_request') }}
+    if: ${{ needs.constants.outputs.SHOULD_PUBLISH == 'true' }}
+    continue-on-error: ${{ matrix.postgis == 'master' }}
     env:
       VERSION: ${{ matrix.postgres }}-${{ matrix.postgis }}
       VARIANT: ${{ matrix.variant }}
