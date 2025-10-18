@@ -17,6 +17,8 @@ env:
   DOCKERHUB_REPO: imresamu/docker-postgis-test  # Change to your DockerHub repo
   GITHUB_REPO: ImreSamu/docker-postgis-test     # Change to your GitHub repo
   LATEST_DEFAULT_VERSION: 17-3.5                # Default version to tag as 'latest' (multi-arch)
+  DOCKERHUB_SHORT_DESCRIPTION: "TesT PostGIS Docker"  # Short description for Docker Hub
+  DOCKERHUB_README_PREFIX: "Ignore this is a test repo \n \n \n "  # Prefix to add to Docker Hub README (empty = no prefix)
 #
 # Also add these secrets in your repository settings:
 #   - secrets.DOCKERHUB_USERNAME
@@ -262,3 +264,27 @@ jobs:
       run: |
         sleep 5
         docker buildx imagetools inspect ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '-alpine' || ''}}
+
+  dockerHubDescription:
+    needs: [merge-manifests]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v5
+
+    - name: Prepare README with prefix
+      run: |
+        if [ -n "${{ env.DOCKERHUB_README_PREFIX }}" ]; then
+          echo -e "${{ env.DOCKERHUB_README_PREFIX }}" > /tmp/dockerhub-readme.md
+          cat README.md >> /tmp/dockerhub-readme.md
+          mv /tmp/dockerhub-readme.md README.md
+        fi
+
+    - name: Update Docker Hub Description
+      uses: peter-evans/dockerhub-description@v4
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        repository: ${{ env.DOCKERHUB_REPO }}
+        short-description: ${{ env.DOCKERHUB_SHORT_DESCRIPTION }}
+        readme-filepath: ./README.md
