@@ -31,6 +31,30 @@ defaults:
 
 jobs:
 
+  dockerHubDescription:
+    #needs: [merge-manifests]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v5
+
+#    - name: Prepare README with prefix
+#      run: |
+#        if [ -n "${{ env.DOCKERHUB_README_PREFIX }}" ]; then
+#          echo -e "${{ env.DOCKERHUB_README_PREFIX }}" > /tmp/dockerhub-readme.md
+#          cat README.md >> /tmp/dockerhub-readme.md
+#          mv /tmp/dockerhub-readme.md README.md
+#        fi
+
+    - name: Update Docker Hub Description
+      uses: peter-evans/dockerhub-description@v5
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+        repository: ${{ env.DOCKERHUB_REPO }}
+#        short-description: ${{ env.DOCKERHUB_SHORT_DESCRIPTION }}
+#        readme-filepath: ./README.md
+
   constants:
     # This job resolves configuration constants that can be used in job-level and step-level 'if' conditions.
     # GitHub Actions 'if' conditions cannot access top-level 'env' variables directly,
@@ -39,6 +63,7 @@ jobs:
     # while the original repository uses the defaults defined in top-level 'env'.
     # The SHOULD_PUBLISH flag centralizes the complex publishing condition in one place.
     name: Init
+    needs: [dockerHubDescription]
     runs-on: ubuntu-latest
     outputs:
       CANONICAL_REPO: ${{ steps.set.outputs.CANONICAL_REPO }}
@@ -265,26 +290,3 @@ jobs:
         sleep 5
         docker buildx imagetools inspect ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '-alpine' || ''}}
 
-  dockerHubDescription:
-    needs: [merge-manifests]
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout source
-      uses: actions/checkout@v5
-
-#    - name: Prepare README with prefix
-#      run: |
-#        if [ -n "${{ env.DOCKERHUB_README_PREFIX }}" ]; then
-#          echo -e "${{ env.DOCKERHUB_README_PREFIX }}" > /tmp/dockerhub-readme.md
-#          cat README.md >> /tmp/dockerhub-readme.md
-#          mv /tmp/dockerhub-readme.md README.md
-#        fi
-
-    - name: Update Docker Hub Description
-      uses: peter-evans/dockerhub-description@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        repository: ${{ env.DOCKERHUB_REPO }}
-#        short-description: ${{ env.DOCKERHUB_SHORT_DESCRIPTION }}
-#        readme-filepath: ./README.md
