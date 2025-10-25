@@ -1,4 +1,8 @@
 name: TEST - Docker PostGIS CI
+# Serialize publish-capable runs per ref so scheduled/push/manual runs queue instead of racing.
+concurrency:
+  group: publish-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 # testing : https://github.com/postgis/docker-postgis/pull/432
 # original author: https://github.com/BowlesCR
@@ -67,11 +71,7 @@ jobs:
       - name: Load matrix from matrix.yml
         id: load-matrix
         run: |
-          # Install yq if not available
-          if ! command -v yq &> /dev/null; then
-            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-            sudo chmod +x /usr/local/bin/yq
-          fi
+          echo "Using $(yq --version)"
 
           # Read build_include from matrix.yml and convert to JSON
           BUILD_INCLUDE=$(yq eval '.build_include' matrix.yml -o=json -I=0)
@@ -178,6 +178,10 @@ jobs:
     needs: [setup, make-docker-images]
     runs-on: ubuntu-24.04-arm  # Always on arm, because why not
     if: ${{ needs.setup.outputs.SHOULD_PUBLISH == 'true' }}
+    # Ensure each tag variant is published by only one workflow run at a time to keep manifests consistent.
+    concurrency:
+      group: merge-${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }}
+      cancel-in-progress: false
     continue-on-error: ${{ matrix.postgis == 'master' }}
     env:
       VERSION: ${{ matrix.postgres }}-${{ matrix.postgis }}
