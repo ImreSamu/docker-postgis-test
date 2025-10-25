@@ -458,7 +458,6 @@ EOF
     merge_count=$((merge_count - build_count))
 
     echo "# Summary: ${merge_count} combinations × ${#MATRIX_RUNNER_PLATFORMS[@]} platforms = ${build_count} build tasks" >> "$temp_file"
-    echo "# Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$temp_file"
     echo "# ==============================================================================" >> "$temp_file"
     echo "# End of matrix.yml" >> "$temp_file"
 

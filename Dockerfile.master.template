@@ -66,6 +66,8 @@ RUN set -ex \
       pkg-config \
       protobuf-c-compiler \
       xsltproc \
+      # sfcgal+
+      nlohmann-json3-dev \
       # gdal+
       libblosc-dev \
       libcfitsio-dev \
