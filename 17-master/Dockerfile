@@ -6,7 +6,7 @@
 # This is a multi-stage Dockerfile, requiring a minimum Docker version of 17.05.
 
 ARG DOCKER_CMAKE_BUILD_TYPE=Release
-ARG CGAL_GIT_BRANCH=master
+ARG CGAL_GIT_BRANCH=main
 FROM postgres:17-bullseye as builder
 
 LABEL maintainer="PostGIS Project - https://postgis.net" \
@@ -105,8 +105,8 @@ RUN set -ex \
 # cgal & sfcgal
 ARG CGAL_GIT_BRANCH
 ENV CGAL_GIT_BRANCH=${CGAL_GIT_BRANCH}
-ENV CGAL_GIT_HASH=
-ENV SFCGAL_GIT_HASH=aa2a5dd6a65cc848e8a01ef14c29fd17aa8ba5e8
+ENV CGAL_GIT_HASH=af9490690393a185fe6c8ff40df158fc3da53c87
+ENV SFCGAL_GIT_HASH=fbe878cac797d3096afec7d954ba8fff9b06ce0a
 RUN set -ex \
     && mkdir -p /usr/src \
     && cd /usr/src \
@@ -139,7 +139,7 @@ RUN set -ex \
     && rm -fr /usr/src/cgal
 
 # proj
-ENV PROJ_GIT_HASH=65aacdaad4ad85540d8aa12fc2e16d438e740962
+ENV PROJ_GIT_HASH=160e432571fc9679bb08ea9cda54c153f03a1cc2
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/OSGeo/PROJ.git \
@@ -169,7 +169,7 @@ RUN set -ex \
     && rm -fr /usr/src/PROJ
 
 # geos
-ENV GEOS_GIT_HASH=b5960c3a08c3ccaffee019529f847dc02371a790
+ENV GEOS_GIT_HASH=93472ce0f6a02dd5dfcbf8e41eca4e75e714209f
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/libgeos/geos.git \
@@ -185,7 +185,7 @@ RUN set -ex \
     && rm -fr /usr/src/geos
 
 # gdal
-ENV GDAL_GIT_HASH=ea75dfb98cb6a6fe27d826f840178e8e6b6fe626
+ENV GDAL_GIT_HASH=d424be4b7c9ff3d2c3b3aa98318eb7c04266f210
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/OSGeo/gdal.git \
@@ -318,11 +318,11 @@ COPY --from=builder /usr/local /usr/local
 
 ARG CGAL_GIT_BRANCH
 ENV CGAL_GIT_BRANCH=${CGAL_GIT_BRANCH}
-ENV CGAL_GIT_HASH=
-ENV SFCGAL_GIT_HASH=aa2a5dd6a65cc848e8a01ef14c29fd17aa8ba5e8
-ENV PROJ_GIT_HASH=65aacdaad4ad85540d8aa12fc2e16d438e740962
-ENV GEOS_GIT_HASH=b5960c3a08c3ccaffee019529f847dc02371a790
-ENV GDAL_GIT_HASH=ea75dfb98cb6a6fe27d826f840178e8e6b6fe626
+ENV CGAL_GIT_HASH=af9490690393a185fe6c8ff40df158fc3da53c87
+ENV SFCGAL_GIT_HASH=fbe878cac797d3096afec7d954ba8fff9b06ce0a
+ENV PROJ_GIT_HASH=160e432571fc9679bb08ea9cda54c153f03a1cc2
+ENV GEOS_GIT_HASH=93472ce0f6a02dd5dfcbf8e41eca4e75e714209f
+ENV GDAL_GIT_HASH=d424be4b7c9ff3d2c3b3aa98318eb7c04266f210
 
 # Minimal command line test ( fail fast )
 RUN set -ex \
@@ -341,7 +341,7 @@ RUN set -ex \
             || echo "ogr2ogr missing PostgreSQL driver" && exit 1
 
 # install postgis
-ENV POSTGIS_GIT_HASH=b185e01e95149f17cbfe486f3906dc6f921108e9
+ENV POSTGIS_GIT_HASH=02bd21e4479d98ebe5fac1b25dabe17f91406cf8
 
 RUN set -ex \
     && apt-get update \
