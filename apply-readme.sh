@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 # this script updates the README.md file with the content of the _dockerlists_*.md files
-# inckluded in the ./update.sh 
+# inckluded in the ./update.sh
 # onyl run invidually if you need debugging or you want to update the README.md manually
 echo " "
 echo "# apply-readme.sh - update README.md with _dockerlists_*.md content"
