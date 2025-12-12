@@ -196,6 +196,19 @@ jobs:
         pattern: digests-${{ env.VERSION }}-${{ env.VARIANT }}-*
         merge-multiple: true
 
+    - name: Verify digests for all platforms
+      working-directory: ${{ runner.temp }}/digests
+      run: |
+        expected="$(jq 'length' <<< "$RUNNER_PLATFORMS_JSON")"
+        found="$(find . -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
+        if [[ "$found" -ne "$expected" ]]; then
+          echo "ERROR: Expected ${expected} digest(s) (one per runner platform), found ${found}."
+          echo "RUNNER_PLATFORMS_JSON=${RUNNER_PLATFORMS_JSON}"
+          ls -la
+          exit 1
+        fi
+        echo "[OK] Found ${found}/${expected} digests"
+
     - name: Create manifest list and push
       env:
         MATRIX_TAGS: ${{ matrix.tags }}
