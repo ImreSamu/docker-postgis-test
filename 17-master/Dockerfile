@@ -1,5 +1,5 @@
 #
-# NOTE: THIS DOCKERFILE IS GENERATED VIA "make update"! PLEASE DO NOT EDIT IT DIRECTLY.
+# NOTE: THIS DOCKERFILE IS GENERATED VIA "./update.sh"! PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
 # "Experimental"; solely for testing purposes. Anticipate frequent changes!
@@ -106,7 +106,7 @@ RUN set -ex \
 ARG CGAL_GIT_BRANCH
 ENV CGAL_GIT_BRANCH=${CGAL_GIT_BRANCH}
 ENV CGAL_GIT_HASH=66fa372677a447b2f2c606021c032b878899bbf2
-ENV SFCGAL_GIT_HASH=6f8e403104481b77a5ad62bdd5f6d00074277341
+ENV SFCGAL_GIT_HASH=118552297b211d047c4d69495df1b272d559cbba
 RUN set -ex \
     && mkdir -p /usr/src \
     && cd /usr/src \
@@ -169,7 +169,7 @@ RUN set -ex \
     && rm -fr /usr/src/PROJ
 
 # geos
-ENV GEOS_GIT_HASH=de22f50d319ce72004d0228fef00a3964eeb6a6a
+ENV GEOS_GIT_HASH=f112e8421cf3a1e9b6a62e032b03e4fa8e2733b8
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/libgeos/geos.git \
@@ -185,7 +185,7 @@ RUN set -ex \
     && rm -fr /usr/src/geos
 
 # gdal
-ENV GDAL_GIT_HASH=65e6056dcb4b39ca19032868a70aec3c608f472d
+ENV GDAL_GIT_HASH=fdfad2289b9dcc74cf4b5051ea4346ee54902b0d
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/OSGeo/gdal.git \
@@ -319,10 +319,10 @@ COPY --from=builder /usr/local /usr/local
 ARG CGAL_GIT_BRANCH
 ENV CGAL_GIT_BRANCH=${CGAL_GIT_BRANCH}
 ENV CGAL_GIT_HASH=66fa372677a447b2f2c606021c032b878899bbf2
-ENV SFCGAL_GIT_HASH=6f8e403104481b77a5ad62bdd5f6d00074277341
+ENV SFCGAL_GIT_HASH=118552297b211d047c4d69495df1b272d559cbba
 ENV PROJ_GIT_HASH=cd2679682f49e9b6b34b6653c1609cfda999374e
-ENV GEOS_GIT_HASH=de22f50d319ce72004d0228fef00a3964eeb6a6a
-ENV GDAL_GIT_HASH=65e6056dcb4b39ca19032868a70aec3c608f472d
+ENV GEOS_GIT_HASH=f112e8421cf3a1e9b6a62e032b03e4fa8e2733b8
+ENV GDAL_GIT_HASH=fdfad2289b9dcc74cf4b5051ea4346ee54902b0d
 
 # Minimal command line test ( fail fast )
 RUN set -ex \

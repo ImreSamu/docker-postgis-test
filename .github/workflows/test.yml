@@ -45,8 +45,8 @@ jobs:
     outputs:
       CANONICAL_REPO: ${{ steps.constants.outputs.CANONICAL_REPO }}
       SHOULD_PUBLISH: ${{ steps.constants.outputs.SHOULD_PUBLISH }}
-      BUILD_INCLUDE: ${{ steps.load-matrix.outputs.BUILD_INCLUDE }}
-      BUILD_TARGETS: ${{ steps.load-matrix.outputs.BUILD_TARGETS }}
+      BUILD_INCLUDE: ${{ steps.matrix.outputs.BUILD_INCLUDE }}
+      BUILD_TARGETS: ${{ steps.matrix.outputs.BUILD_TARGETS }}
     steps:
       - name: Set constants
         id: constants
@@ -68,62 +68,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Load matrix from matrix.yml
-        id: load-matrix
-        run: |
-          echo "Using $(yq --version)"
-
-          # Read build_targets from matrix.yml and convert to JSON
-          BUILD_TARGETS=$(yq eval '.build_targets' matrix.yml -o=json -I=0)
-          echo "BUILD_TARGETS=$BUILD_TARGETS" >> "$GITHUB_OUTPUT"
-
-          # Expand build_targets × runner platforms using RUNNER_PLATFORMS_JSON
-          RUNNER_PLATFORMS=$(jq -c '.' <<< "$RUNNER_PLATFORMS_JSON")
-          BUILD_INCLUDE=$(jq -c --argjson platforms "$RUNNER_PLATFORMS" '
-            [ .[] as $combo | $platforms[] | $combo + {"runner-platform": .} ]
-          ' <<< "$BUILD_TARGETS")
-          echo "BUILD_INCLUDE=$BUILD_INCLUDE" >> "$GITHUB_OUTPUT"
-
-          # Debug: Show what we loaded
-          echo "Loaded BUILD_TARGETS with $(echo "$BUILD_TARGETS" | jq 'length') entries"
-          echo "Expanded BUILD_INCLUDE with $(echo "$BUILD_INCLUDE" | jq 'length') entries"
-
-      - name: Validate ./matrix.yml
-        run: |
-          echo "Validating ./matrix.yml..."
-
-          # 1. Check build_targets exists and is not empty
-          BUILD_COUNT=$(yq eval '.build_targets | length' matrix.yml)
-          if [ "$BUILD_COUNT" -eq 0 ]; then
-            echo "ERROR: matrix.yml has no build_targets"
-            exit 1
-          fi
-
-          # 2. Check all entries have required non-empty fields: postgres, postgis, variant, tags
-          INVALID_ENTRIES=$(yq eval '
-            [.build_targets[] | select(
-              .postgres == null or .postgres == "" or
-              .postgis == null or .postgis == "" or
-              .variant == null or .variant == "" or
-              .tags == null or .tags == ""
-            )]
-          ' matrix.yml -o=json)
-
-          if [ "$(echo "$INVALID_ENTRIES" | jq 'length')" -gt 0 ]; then
-            echo "ERROR: Some entries have missing or empty required fields (postgres/postgis/variant/tags):"
-            echo "$INVALID_ENTRIES" | jq '.'
-            exit 1
-          fi
-
-          # 3. Verify exactly one entry has 'latest' tag
-          LATEST_COUNT=$(yq eval '[.build_targets[] | select(.tags | contains("latest"))] | length' matrix.yml)
-          if [ "$LATEST_COUNT" -ne 1 ]; then
-            echo "ERROR: Expected exactly 1 entry with 'latest' tag, found: $LATEST_COUNT"
-            yq eval '.build_targets[] | select(.tags | contains("latest"))' matrix.yml
-            exit 1
-          fi
-
-          echo "matrix.yml valid: $BUILD_COUNT targets, all have required fields, 1 'latest' tag"
+      - name: Load and validate matrix
+        id: matrix
+        run: bash ci/matrix.sh
 
   make-docker-images:
     needs: setup
@@ -149,12 +96,20 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    - name: Compute build directory
+      run: |
+        if [[ "$VARIANT" == "alpine" ]]; then
+          echo "BUILD_DIR=$VERSION/alpine" >> "$GITHUB_ENV"
+        else
+          echo "BUILD_DIR=$VERSION" >> "$GITHUB_ENV"
+        fi
+
     - name: Build Docker image for ${{ env.VERSION }} ${{ env.VARIANT }}
       id: build
       uses: docker/build-push-action@v5
       with:
-        context: ${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '/alpine' || ''}}
-        file: ${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '/alpine' || ''}}/Dockerfile
+        context: ${{ env.BUILD_DIR }}
+        file: ${{ env.BUILD_DIR }}/Dockerfile
         tags: ${{ env.CI_IMAGE_TAG }}
         load: true
         push: false  # don't push until after testing
@@ -167,19 +122,8 @@ jobs:
         sparse-checkout: |
           test
 
-    - name: Run official-images test script
-      run: |
-        ./official-images/test/run.sh -c ./official-images/test/config.sh -c test/postgis-config.sh "$CI_IMAGE_TAG" | tee test.log
-
-    - name: Verify test results
-      run: |
-        if ! grep -q "'postgres-basics'.*passed" test.log || \
-           ! grep -q "'postgres-initdb'.*passed" test.log || \
-           ! grep -q "'postgis-basics'.*passed" test.log; then
-          echo "ERROR: Required postgres/postgis tests did not pass!"
-          exit 1
-        fi
-        echo "✓ All required tests passed"
+    - name: Test image with official-images
+      run: bash ci/test-image.sh "$CI_IMAGE_TAG"
 
     - name: Login to dockerhub
       id: login-dockerhub
@@ -194,8 +138,8 @@ jobs:
       uses: docker/build-push-action@v5  # Build is cached, this is really just a push
       if: ${{ needs.setup.outputs.SHOULD_PUBLISH == 'true' && steps.login-dockerhub.outcome == 'success' }}
       with:
-        context: ${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '/alpine' || ''}}
-        file: ${{ env.VERSION }}${{ env.VARIANT == 'alpine' && '/alpine' || ''}}/Dockerfile
+        context: ${{ env.BUILD_DIR }}
+        file: ${{ env.BUILD_DIR }}/Dockerfile
         outputs: type=image,"name=${{ env.DOCKERHUB_REPO }}",push-by-digest=true,name-canonical=true,push=true
 
     - name: Export digest
@@ -217,7 +161,7 @@ jobs:
   merge-manifests:
     name: "Merge:${{ matrix.postgres }}-${{ matrix.postgis }}-${{ matrix.variant }} manifests and push to DockerHub"
     needs: [setup, make-docker-images]
-    runs-on: ubuntu-24.04-arm  # Always on arm, because why not
+    runs-on: ubuntu-24.04-arm  # Run on arm runner for manifest merge
     if: ${{ needs.setup.outputs.SHOULD_PUBLISH == 'true' }}
     # Ensure each tag variant is published by only one workflow run at a time to keep manifests consistent.
     concurrency:
@@ -232,6 +176,9 @@ jobs:
         include: ${{ fromJSON(needs.setup.outputs.BUILD_TARGETS) }}
 
     steps:
+    - name: Checkout source
+      uses: actions/checkout@v5
+
     - name: Login to dockerhub
       id: login-dockerhub
       uses: docker/login-action@v3
@@ -250,24 +197,16 @@ jobs:
         merge-multiple: true
 
     - name: Create manifest list and push
-      working-directory: ${{ runner.temp }}/digests
       env:
-        # Tags from matrix.yml (space-separated list generated by update.sh)
         MATRIX_TAGS: ${{ matrix.tags }}
       run: |
-        # Build tag arguments from matrix.tags (generated by update.sh)
-        # Each tag becomes: -t <repo>:<tag>
-        TAG_ARGS=""
-        for tag in $MATRIX_TAGS; do
-          TAG_ARGS="$TAG_ARGS -t ${{ env.DOCKERHUB_REPO }}:${tag}"
-        done
-
-        echo "Creating multi-arch manifest with tags:$TAG_ARGS"
-
-        # Create manifest from all architecture digests and push with all tags
-        # shellcheck disable=SC2046,SC2086
-        docker buildx imagetools create $TAG_ARGS \
-          $(printf '${{ env.DOCKERHUB_REPO }}@sha256:%s ' *)
+        build_month="$(date -u +%Y%m)"
+        read -r -a tags_arr <<< "$MATRIX_TAGS"
+        extra_tags=""
+        if [[ "${#tags_arr[@]}" -ge 2 ]]; then
+          extra_tags+=" ${tags_arr[1]}-${build_month}"
+        fi
+        bash ci/push-manifest.sh "${{ env.DOCKERHUB_REPO }}" "${MATRIX_TAGS}${extra_tags}" "${{ runner.temp }}/digests"
 
     - name: Inspect image  # Purely for debugging
       run: |
@@ -281,14 +220,11 @@ jobs:
     - name: Checkout source
       uses: actions/checkout@v5
 
-    - name: Prepare README with prefix
-      run: |
-        if [ -n "${{ env.DOCKERHUB_README_PREFIX }}" ]; then
-          echo -e "${{ env.DOCKERHUB_README_PREFIX }}" > /tmp/dockerhub-readme.md
-          cat README.md >> /tmp/dockerhub-readme.md
-          mv /tmp/dockerhub-readme.md README.md
-        fi
+    - name: Prepare README with prefix (create ./_DOCKER-HUB-README.md )
+      run: bash ci/prepare-dockerhub-readme.sh && ls -la ./_DOCKER-HUB-README.md
 
+    - name: Debug ./_DOCKER-HUB-README.md
+      run: cat ./_DOCKER-HUB-README.md
     - name: Update Docker Hub Description
       uses: peter-evans/dockerhub-description@v5
       with:
@@ -296,4 +232,4 @@ jobs:
         password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
         repository: ${{ env.DOCKERHUB_REPO }}
         short-description: "${{ env.DOCKERHUB_SHORT_DESCRIPTION }}"
-        readme-filepath: ./README.md
+        readme-filepath: ./_DOCKER-HUB-README.md
