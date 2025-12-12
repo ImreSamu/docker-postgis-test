@@ -9,21 +9,21 @@
 # - postgres: 17, postgis: 3.6, variant: default - Reason: placeholder (Debian bullseye package not available)
 
 build_targets:
-  - { postgres: '13', postgis: '3.5', variant: 'default' }
-  - { postgres: '14', postgis: '3.5', variant: 'default' }
-  - { postgres: '15', postgis: '3.5', variant: 'default' }
-  - { postgres: '16', postgis: '3.5', variant: 'default' }
-  - { postgres: '17', postgis: '3.5', variant: 'default' }
-  - { postgres: '18', postgis: '3.6', variant: 'default' }
-  - { postgres: '13', postgis: '3.5', variant: 'alpine' }
-  - { postgres: '14', postgis: '3.5', variant: 'alpine' }
-  - { postgres: '15', postgis: '3.5', variant: 'alpine' }
-  - { postgres: '16', postgis: '3.5', variant: 'alpine' }
-  - { postgres: '17', postgis: '3.5', variant: 'alpine' }
-  - { postgres: '17', postgis: '3.6', variant: 'alpine' }
-  - { postgres: '18', postgis: '3.6', variant: 'alpine' }
-  - { postgres: '16', postgis: 'master', variant: 'default' }
-  - { postgres: '17', postgis: 'master', variant: 'default' }
+  - { postgres: '13', postgis: '3.5', variant: 'default', tags: '13-3.5 13-3.5-bullseye 13-3.5.2-bullseye' }
+  - { postgres: '14', postgis: '3.5', variant: 'default', tags: '14-3.5 14-3.5-bullseye 14-3.5.2-bullseye' }
+  - { postgres: '15', postgis: '3.5', variant: 'default', tags: '15-3.5 15-3.5-bullseye 15-3.5.2-bullseye' }
+  - { postgres: '16', postgis: '3.5', variant: 'default', tags: '16-3.5 16-3.5-bullseye 16-3.5.2-bullseye' }
+  - { postgres: '17', postgis: '3.5', variant: 'default', tags: '17-3.5 17-3.5-bullseye 17-3.5.2-bullseye' }
+  - { postgres: '18', postgis: '3.6', variant: 'default', tags: '18-3.6 18-3.6-trixie 18-3.6.1-trixie latest' }
+  - { postgres: '13', postgis: '3.5', variant: 'alpine', tags: '13-3.5-alpine 13-3.5-alpine3.22 13-3.5.4-alpine3.22' }
+  - { postgres: '14', postgis: '3.5', variant: 'alpine', tags: '14-3.5-alpine 14-3.5-alpine3.22 14-3.5.4-alpine3.22' }
+  - { postgres: '15', postgis: '3.5', variant: 'alpine', tags: '15-3.5-alpine 15-3.5-alpine3.22 15-3.5.4-alpine3.22' }
+  - { postgres: '16', postgis: '3.5', variant: 'alpine', tags: '16-3.5-alpine 16-3.5-alpine3.22 16-3.5.4-alpine3.22' }
+  - { postgres: '17', postgis: '3.5', variant: 'alpine', tags: '17-3.5-alpine 17-3.5-alpine3.22 17-3.5.4-alpine3.22' }
+  - { postgres: '17', postgis: '3.6', variant: 'alpine', tags: '17-3.6-alpine 17-3.6-alpine3.22 17-3.6.1-alpine3.22' }
+  - { postgres: '18', postgis: '3.6', variant: 'alpine', tags: '18-3.6-alpine 18-3.6-alpine3.22 18-3.6.1-alpine3.22' }
+  - { postgres: '16', postgis: 'master', variant: 'default', tags: '16-master 16-master-bullseye' }
+  - { postgres: '17', postgis: 'master', variant: 'default', tags: '17-master 17-master-bullseye' }
 
 
 # ==============================================================================

@@ -32,6 +32,49 @@ githubrepolink="https://github.com/postgis/docker-postgis/blob/master"
 # Matrix configuration for CI/CD
 MATRIX_FILE="matrix.yml"
 
+LATEST_VERSION=18-3.6
+
+# =============================================================================
+# Build Docker tag list for matrix.yml
+# This function generates the tags field for each matrix entry.
+# Usage: build_tags <pg_version> <postgis_version> <variant> <os_label> <postgis_patch>
+# Output format by variant:
+#   default: "<PG>-<POSTGIS> <PG>-<POSTGIS>-<OS> <PG>-<PATCH>-<OS> [latest]"
+#   alpine:  "<PG>-<POSTGIS>-alpine <PG>-<POSTGIS>-<OS> <PG>-<PATCH>-<OS>"
+# Note: 'latest' is added only when combo == LATEST_VERSION and variant == default
+# =============================================================================
+build_tags() {
+    local pg="$1"
+    local postgis="$2"
+    local variant="$3"
+    local os_label="$4"
+    local patch="$5"
+    local combo="${pg}-${postgis}"
+    local -a tags=()
+
+    if [[ "$variant" == "alpine" ]]; then
+        # Alpine: combo-alpine, combo-os, [patch-os]
+        tags+=("${combo}-alpine")
+        tags+=("${combo}-${os_label}")
+    else
+        # Debian/default: combo, combo-os, [patch-os]
+        tags+=("${combo}")
+        tags+=("${combo}-${os_label}")
+    fi
+
+    # Add patch version tag only if numeric (skip for master/RC/alpha/beta)
+    if [[ "$patch" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        tags+=("${pg}-${patch}-${os_label}")
+    fi
+
+    # Add 'latest' only for LATEST_VERSION + default variant
+    if [[ "$combo" == "$LATEST_VERSION" && "$variant" == "default" ]]; then
+        tags+=("latest")
+    fi
+
+    echo "${tags[*]}"
+}
+
 # sort version numbers with highest last (so it goes first in .travis.yml)
 IFS=$'\n'; versions=( $(echo "${versions[*]}" | sort -V) ); unset IFS
 
@@ -247,7 +290,6 @@ for version in "${versions[@]}"; do
         echo "!!!!! postgisFullVersion = ${postgisFullVersion}";
     else
         (
-            set -x
             cp -p initdb-postgis.sh update-postgis.sh "$version/"
             if [ "master" == "$postgisVersion" ]; then
               cat Dockerfile.master.template > "$version/Dockerfile"
@@ -261,7 +303,10 @@ for version in "${versions[@]}"; do
             echo "| [postgis/postgis:${version}](${dockerhublink}${version}) | [Dockerfile](${githubrepolink}/${version}/Dockerfile) | debian:${suite} | ${postgresVersion} | ${postgisDocSrc} |" >> _dockerlists_${optimized}.md
             # Matrix entry IMMEDIATELY after _dockerlists_*.md write
             # If it goes into _dockerlists_*.md → it goes into _matrixlist_*.yml too!
-            echo "  - { postgres: '${postgresVersionMain}', postgis: '${postgisVersion}', variant: 'default' }" >> _matrixlist_${optimized}.yml
+            # Generate tags for this build (Debian/default variant)
+            _tags=$(build_tags "${postgresVersionMain}" "${postgisVersion}" "default" "${suite}" "${postgisDocSrc}")
+            echo "tags: ${_tags}"
+            echo "  - { postgres: '${postgresVersionMain}', postgis: '${postgisVersion}', variant: 'default', tags: '${_tags}' }" >> _matrixlist_${optimized}.yml
             # ===== END CRITICAL POINT =====
         )
     fi
@@ -302,7 +347,6 @@ for version in "${versions[@]}"; do
             continue
         fi
         (
-            set -x
             if [ "$optimized" != "test" ]; then
               optimized="alpine"
             fi
@@ -315,7 +359,10 @@ for version in "${versions[@]}"; do
             echo "| [postgis/postgis:${version}-${variant}](${dockerhublink}${version}-${variant}) | [Dockerfile](${githubrepolink}/${version}/${variant}/Dockerfile) | alpine:${defaultAlpinenSuite} | ${postgresVersion} | ${postgisDocSrc} |" >> _dockerlists_${optimized}.md
             # Matrix entry IMMEDIATELY after _dockerlists_*.md write
             # If it goes into _dockerlists_*.md → it goes into _matrixlist_*.yml too!
-            echo "  - { postgres: '${postgresVersionMain}', postgis: '${postgisVersion}', variant: 'alpine' }" >> _matrixlist_${optimized}.yml
+            # Generate tags for this build (Alpine variant)
+            _tags=$(build_tags "${postgresVersionMain}" "${postgisVersion}" "alpine" "alpine${defaultAlpinenSuite}" "${postgisDocSrc}")
+            echo "tags: ${_tags}"
+            echo "  - { postgres: '${postgresVersionMain}', postgis: '${postgisVersion}', variant: 'alpine', tags: '${_tags}' }" >> _matrixlist_${optimized}.yml
             # ===== END CRITICAL POINT =====
         )
     done
