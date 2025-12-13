@@ -19,7 +19,7 @@ registry_container="local-registry-ci"
 patterns=()
 
 runtime="$(date +%Y%m%d-%H%M%S)"
-log_dir="${repo_root}/build_log/${runtime}"
+log_dir="${repo_root}/_build_log/${runtime}"
 
 usage() {
   cat <<'EOF'
@@ -115,6 +115,7 @@ matches_patterns() {
   local tag pat
   for tag in $tags_str; do
     for pat in "${pats[@]}"; do
+      # shellcheck disable=SC2053  # Intentional glob matching
       if [[ "$tag" == $pat ]]; then
         return 0
       fi

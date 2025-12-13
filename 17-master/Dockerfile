@@ -105,7 +105,7 @@ RUN set -ex \
 # cgal & sfcgal
 ARG CGAL_GIT_BRANCH
 ENV CGAL_GIT_BRANCH=${CGAL_GIT_BRANCH}
-ENV CGAL_GIT_HASH=66fa372677a447b2f2c606021c032b878899bbf2
+ENV CGAL_GIT_HASH=47ef182fa21bbecbd04a14b57f4526039e38834c
 ENV SFCGAL_GIT_HASH=118552297b211d047c4d69495df1b272d559cbba
 RUN set -ex \
     && mkdir -p /usr/src \
@@ -169,7 +169,7 @@ RUN set -ex \
     && rm -fr /usr/src/PROJ
 
 # geos
-ENV GEOS_GIT_HASH=f112e8421cf3a1e9b6a62e032b03e4fa8e2733b8
+ENV GEOS_GIT_HASH=e8c6acca2cd023ea699eaa9237695f860e2ee72a
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/libgeos/geos.git \
@@ -185,7 +185,7 @@ RUN set -ex \
     && rm -fr /usr/src/geos
 
 # gdal
-ENV GDAL_GIT_HASH=fdfad2289b9dcc74cf4b5051ea4346ee54902b0d
+ENV GDAL_GIT_HASH=a993cbcf5c136ecba9d6d8b1a54baaeb8d79d646
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/OSGeo/gdal.git \
@@ -318,11 +318,11 @@ COPY --from=builder /usr/local /usr/local
 
 ARG CGAL_GIT_BRANCH
 ENV CGAL_GIT_BRANCH=${CGAL_GIT_BRANCH}
-ENV CGAL_GIT_HASH=66fa372677a447b2f2c606021c032b878899bbf2
+ENV CGAL_GIT_HASH=47ef182fa21bbecbd04a14b57f4526039e38834c
 ENV SFCGAL_GIT_HASH=118552297b211d047c4d69495df1b272d559cbba
 ENV PROJ_GIT_HASH=cd2679682f49e9b6b34b6653c1609cfda999374e
-ENV GEOS_GIT_HASH=f112e8421cf3a1e9b6a62e032b03e4fa8e2733b8
-ENV GDAL_GIT_HASH=fdfad2289b9dcc74cf4b5051ea4346ee54902b0d
+ENV GEOS_GIT_HASH=e8c6acca2cd023ea699eaa9237695f860e2ee72a
+ENV GDAL_GIT_HASH=a993cbcf5c136ecba9d6d8b1a54baaeb8d79d646
 
 # Minimal command line test ( fail fast )
 RUN set -ex \

@@ -86,6 +86,9 @@ Local notes:
   - `bash ci/local-test.sh '*-alpine'`
   - `bash ci/local-test.sh '1*-3.5' '*-bullseye'`
 
+Logs:
+- Build/test logs are written under `./_build_log/<runtime>/`.
+
 ### `ci/local-docker-clean.sh`
 
 Purpose: remove local Docker images created by local CI/test runs.
@@ -97,3 +100,13 @@ Functions (high level):
 
 Local notes:
 - Use `--dry-run` to see what would be deleted.
+
+### `ci/test-update.sh`
+
+Purpose: small, network-free unit tests for selected `update.sh` helper functions.
+
+Functions (high level):
+- Sources `./update.sh` (without running it) and exercises helpers like `build_tags()`.
+
+Local notes:
+- Run: `bash ci/test-update.sh`

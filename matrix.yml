@@ -19,7 +19,7 @@ build_targets:
   - { postgres: '14', postgis: '3.5', variant: 'alpine', tags: '14-3.5-alpine 14-3.5-alpine3.22 14-3.5.4-alpine3.22' }
   - { postgres: '15', postgis: '3.5', variant: 'alpine', tags: '15-3.5-alpine 15-3.5-alpine3.22 15-3.5.4-alpine3.22' }
   - { postgres: '16', postgis: '3.5', variant: 'alpine', tags: '16-3.5-alpine 16-3.5-alpine3.22 16-3.5.4-alpine3.22' }
-  - { postgres: '17', postgis: '3.5', variant: 'alpine', tags: '17-3.5-alpine 17-3.5-alpine3.22 17-3.5.4-alpine3.22' }
+  - { postgres: '17', postgis: '3.5', variant: 'alpine', tags: '17-3.5-alpine 17-3.5-alpine3.22 17-3.5.4-alpine3.22 alpine' }
   - { postgres: '17', postgis: '3.6', variant: 'alpine', tags: '17-3.6-alpine 17-3.6-alpine3.22 17-3.6.1-alpine3.22' }
   - { postgres: '18', postgis: '3.6', variant: 'alpine', tags: '18-3.6-alpine 18-3.6-alpine3.22 18-3.6.1-alpine3.22' }
   - { postgres: '16', postgis: 'master', variant: 'default', tags: '16-master 16-master-bullseye' }
