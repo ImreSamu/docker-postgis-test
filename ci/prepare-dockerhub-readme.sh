@@ -1,5 +1,31 @@
 #!/usr/bin/env bash
-set -euo pipefail
+#
+# prepare-dockerhub-readme.sh - Prepare a README suitable for Docker Hub description
+#
+set -Eeuo pipefail
+
+# --- Logging (CI-only, no colors) ---
+log_info()  { echo "[INFO] $*" >&2; }
+log_warn()  { echo "[WARN] $*" >&2; }
+log_error() { echo "[ERROR] $*" >&2; }
+die()       { log_error "$1"; exit "${2:-1}"; }
+
+usage() {
+  cat <<'EOF'
+Usage: ci/prepare-dockerhub-readme.sh [source-readme] [output-readme]
+
+Writes a Docker Hub compatible README, optionally prefixing it via:
+  DOCKERHUB_README_PREFIX
+
+Defaults:
+  source-readme: README.md
+  output-readme: _DOCKER-HUB-README.md
+EOF
+}
+
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -9,8 +35,7 @@ out_readme="${2:-_DOCKER-HUB-README.md}"
 prefix="${DOCKERHUB_README_PREFIX:-}"
 
 if [[ ! -f "$src_readme" ]]; then
-  echo "ERROR: Source README not found: $src_readme" >&2
-  exit 1
+  die "Source README not found: $src_readme"
 fi
 
 mkdir -p "$(dirname "$out_readme")"
@@ -42,7 +67,7 @@ if [[ "$size" -ge "$limit" ]]; then
   avail=$(( limit - start_len - end_len ))
 
   if (( avail < 0 )); then
-    echo "ERROR: Trimming blocks exceed limit ${limit}" >&2
+    log_error "Trimming blocks exceed limit ${limit}"
     avail=0
   fi
 
@@ -65,4 +90,4 @@ if [[ "$size" -ge "$limit" ]]; then
   mv "$final_tmp" "$readme_path"
 fi
 
-echo "[OK] Docker Hub README prepared: $out_readme"
+log_info "[OK] Docker Hub README prepared: $out_readme"

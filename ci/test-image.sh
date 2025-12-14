@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
-set -euo pipefail
+#
+# test-image.sh - Run official-images test suite against a PostGIS image
+#
+set -Eeuo pipefail
+
+# --- Logging (CI-only, no colors) ---
+log_info()  { echo "[INFO] $*" >&2; }
+log_warn()  { echo "[WARN] $*" >&2; }
+log_error() { echo "[ERROR] $*" >&2; }
+die()       { log_error "$1"; exit "${2:-1}"; }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -11,13 +20,12 @@ official_run="./${official_images_dir}/test/run.sh"
 official_config="./${official_images_dir}/test/config.sh"
 
 if [[ -z "$image_tag" ]]; then
-  echo "Usage: ci/test-image.sh <image-tag>" >&2
-  exit 2
+  die "Usage: ci/test-image.sh <image-tag>" 2
 fi
 
 if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
   if [[ -d "${official_images_dir}/.git" ]]; then
-    echo "Local run: updating ./${official_images_dir} checkout..." >&2
+    log_info "Local run: updating ./${official_images_dir} checkout..."
     (
       cd "$official_images_dir"
       if git remote update --prune; then
@@ -26,38 +34,36 @@ if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
         elif git show-ref --quiet refs/remotes/origin/main; then
           git reset --hard origin/main
         else
-          echo "WARNING: Could not detect origin/master or origin/main; leaving checkout unchanged." >&2
+          log_warn "Could not detect origin/master or origin/main; leaving checkout unchanged."
         fi
       else
-        echo "WARNING: Failed to update official-images; using existing checkout." >&2
+        log_warn "Failed to update official-images; using existing checkout."
       fi
     )
   elif [[ ! -d "$official_images_dir" ]]; then
-    echo "Local run: ./${official_images_dir} is missing; cloning docker-library/official-images..." >&2
+    log_info "Local run: ./${official_images_dir} is missing; cloning docker-library/official-images..."
     if ! command -v git >/dev/null 2>&1; then
-      echo "ERROR: git is required to clone official-images." >&2
-      echo "Run locally:" >&2
-      echo "  git clone https://github.com/docker-library/official-images.git ${official_images_dir}" >&2
+      log_error "git is required to clone official-images."
+      log_info "Run locally:"
+      log_info "  git clone https://github.com/docker-library/official-images.git ${official_images_dir}"
       exit 1
     fi
     if ! git clone --depth 1 https://github.com/docker-library/official-images.git "${official_images_dir}"; then
-      echo "ERROR: Failed to clone official-images." >&2
-      echo "Retry locally with:" >&2
-      echo "  git clone https://github.com/docker-library/official-images.git ${official_images_dir}" >&2
+      log_error "Failed to clone official-images."
+      log_info "Retry locally with:"
+      log_info "  git clone https://github.com/docker-library/official-images.git ${official_images_dir}"
       exit 1
     fi
   else
-    echo "WARNING: ./${official_images_dir} exists but is not a git checkout; skipping update." >&2
+    log_warn "./${official_images_dir} exists but is not a git checkout; skipping update."
   fi
 fi
 
 if [[ ! -x "$official_run" ]]; then
-  echo "ERROR: ${official_run} not found or not executable." >&2
-  exit 1
+  die "${official_run} not found or not executable."
 fi
 if [[ ! -f "$official_config" ]]; then
-  echo "ERROR: ${official_config} not found." >&2
-  exit 1
+  die "${official_config} not found."
 fi
 
 "$official_run" -c "$official_config" -c test/postgis-config.sh "$image_tag" | tee "$log_file"
@@ -65,9 +71,8 @@ fi
 required_tests=("postgres-basics" "postgres-initdb" "postgis-basics")
 for test_name in "${required_tests[@]}"; do
   if ! grep -q "'${test_name}'.*passed" "$log_file"; then
-    echo "ERROR: Required test '${test_name}' did not pass!" >&2
-    exit 1
+    die "Required test '${test_name}' did not pass!"
   fi
 done
 
-echo "[OK] All required tests passed"
+log_info "[OK] All required tests passed"

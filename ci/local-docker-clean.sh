@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-log()  { echo "[INFO] $*"; }
-warn() { echo "[WARN] $*" >&2; }
-die()  { echo "[ERROR] $*" >&2; exit 1; }
+log_info()  { echo "[INFO] $*" >&2; }
+log_warn()  { echo "[WARN] $*" >&2; }
+log_error() { echo "[ERROR] $*" >&2; }
+die()       { log_error "$1"; exit "${2:-1}"; }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -40,11 +41,11 @@ delete_images_by_ref() {
   mapfile -t ids < <(docker images --no-trunc --quiet "$ref" 2>/dev/null | sort -u)
 
   if [[ "${#ids[@]}" -eq 0 ]]; then
-    log "No images matched: $ref"
+    log_info "No images matched: $ref"
     return 0
   fi
 
-  log "Matched $ref:"
+  log_info "Matched $ref:"
   for id in "${ids[@]}"; do
     echo "  $id"
   done
@@ -54,13 +55,12 @@ delete_images_by_ref() {
   fi
 
   # shellcheck disable=SC2086
-  docker rmi -f "${ids[@]}" >/dev/null || warn "Some images could not be removed for: $ref"
-  log "[OK] Removed images for: $ref"
+  docker rmi -f "${ids[@]}" >/dev/null || log_warn "Some images could not be removed for: $ref"
+  log_info "[OK] Removed images for: $ref"
 }
 
 delete_images_by_ref "${local_image_repo}:local-*"
 delete_images_by_ref "${local_registry}/${local_image_repo}:*"
 delete_images_by_ref "librarytest/postgres-initdb:*"
 
-log "[OK] Local docker test images cleaned"
-
+log_info "[OK] Local docker test images cleaned"

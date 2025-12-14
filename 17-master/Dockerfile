@@ -185,7 +185,7 @@ RUN set -ex \
     && rm -fr /usr/src/geos
 
 # gdal
-ENV GDAL_GIT_HASH=a993cbcf5c136ecba9d6d8b1a54baaeb8d79d646
+ENV GDAL_GIT_HASH=4fc5970dbae7a4fb5d730a64b6ece0b9a125db17
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/OSGeo/gdal.git \
@@ -322,7 +322,7 @@ ENV CGAL_GIT_HASH=47ef182fa21bbecbd04a14b57f4526039e38834c
 ENV SFCGAL_GIT_HASH=118552297b211d047c4d69495df1b272d559cbba
 ENV PROJ_GIT_HASH=cd2679682f49e9b6b34b6653c1609cfda999374e
 ENV GEOS_GIT_HASH=e8c6acca2cd023ea699eaa9237695f860e2ee72a
-ENV GDAL_GIT_HASH=a993cbcf5c136ecba9d6d8b1a54baaeb8d79d646
+ENV GDAL_GIT_HASH=4fc5970dbae7a4fb5d730a64b6ece0b9a125db17
 
 # Minimal command line test ( fail fast )
 RUN set -ex \

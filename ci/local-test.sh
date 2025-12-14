@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-log()  { echo "[INFO] $*"; }
-warn() { echo "[WARN] $*" >&2; }
-die()  { echo "[ERROR] $*" >&2; exit 1; }
+log_info()  { echo "[INFO] $*" >&2; }
+log_warn()  { echo "[WARN] $*" >&2; }
+log_error() { echo "[ERROR] $*" >&2; }
+die()       { log_error "$1"; exit "${2:-1}"; }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -76,29 +77,29 @@ start_registry() {
   local port="${registry_addr##*:}"
 
   if [[ ! "$host" =~ ^(localhost|127\.0\.0\.1)$ ]]; then
-    log "Using remote registry ${registry_addr} (not auto-starting)"
+    log_info "Using remote registry ${registry_addr} (not auto-starting)"
     return 0
   fi
 
   if docker ps --format '{{.Names}}' | grep -qx "$registry_container"; then
-    log "Local registry already running: ${registry_container}"
+    log_info "Local registry already running: ${registry_container}"
     return 0
   fi
 
   if docker ps -a --format '{{.Names}}' | grep -qx "$registry_container"; then
-    log "Starting existing registry container: ${registry_container}"
+    log_info "Starting existing registry container: ${registry_container}"
     docker start "$registry_container" >/dev/null
     return 0
   fi
 
-  log "Starting local registry (${registry_container}) on ${registry_addr}"
+  log_info "Starting local registry (${registry_container}) on ${registry_addr}"
   docker run -d -p "${port}:5000" --name "$registry_container" registry:3 >/dev/null
   registry_created=true
 }
 
 cleanup_registry() {
   if [[ "$registry_created" == "true" && "$keep_registry" == "false" ]]; then
-    log "Stopping local registry container: ${registry_container}"
+    log_info "Stopping local registry container: ${registry_container}"
     docker rm -f "$registry_container" >/dev/null || true
   fi
 }
@@ -149,9 +150,9 @@ fi
 if [[ "$with_registry" == "true" ]]; then
   require_buildx
   start_registry
-  log "Running local build+test+manifest on native platform"
+  log_info "Running local build+test+manifest on native platform"
 else
-  log "Running local build+test on native platform only"
+  log_info "Running local build+test on native platform only"
 fi
 
 selected_indices=()
@@ -168,13 +169,13 @@ if [[ "$selected_count" -eq 0 ]]; then
 fi
 
 if [[ "${#patterns[@]}" -gt 0 ]]; then
-  log "Selected ${selected_count}/${target_count} targets by patterns: ${patterns[*]}"
+  log_info "Selected ${selected_count}/${target_count} targets by patterns: ${patterns[*]}"
 else
-  log "Selected all ${selected_count} targets"
+  log_info "Selected all ${selected_count} targets"
 fi
 
 mkdir -p "$log_dir"
-log "Logs will be saved to ${log_dir}"
+log_info "Logs will be saved to ${log_dir}"
 
 for sel_pos in "${!selected_indices[@]}"; do
   i="${selected_indices[$sel_pos]}"
@@ -207,17 +208,17 @@ for sel_pos in "${!selected_indices[@]}"; do
     die "Dockerfile not found: ${dockerfile}"
   fi
 
-  log "[$((sel_pos+1))/${selected_count}] Building ${tag} from ${build_dir}"
+  log_info "[$((sel_pos+1))/${selected_count}] Building ${tag} from ${build_dir}"
   docker build -t "$tag" -f "$dockerfile" "$build_dir" 2>&1 | tee "$build_log"
 
-  log "Testing ${tag}"
+  log_info "Testing ${tag}"
   TEST_LOG_FILE="$test_log" bash ci/test-image.sh "$tag"
 
   if [[ "$with_registry" == "true" ]]; then
     registry_repo="${registry_addr}/${local_image_repo}"
     temp_push_tag="${registry_repo}:ci-local-${version_dir}${variant_suffix}"
 
-    log "Pushing native image to local registry: ${temp_push_tag}"
+    log_info "Pushing native image to local registry: ${temp_push_tag}"
     docker tag "$tag" "$temp_push_tag"
     docker push "$temp_push_tag" >/dev/null
 
@@ -232,20 +233,20 @@ for sel_pos in "${!selected_indices[@]}"; do
     if [[ "${#tags_arr[@]}" -ge 2 ]]; then
       extra_tags+=" ${tags_arr[1]}-${build_month}"
     fi
-    log "Creating manifest(s) in local registry for tags: ${entry_tags}${extra_tags}"
+    log_info "Creating manifest(s) in local registry for tags: ${entry_tags}${extra_tags}"
     bash ci/push-manifest.sh "$registry_repo" "${entry_tags}${extra_tags}" "$digests_dir"
     rm -rf "$digests_dir"
   fi
 done
 
 if [[ "$with_registry" == "true" ]]; then
-  log "Preparing Docker Hub README (local dry run)"
+  log_info "Preparing Docker Hub README (local dry run)"
   dockerhub_readme_out="${repo_root}/_DOCKER-HUB-README.md"
   readme_src_tmp="$(mktemp)"
   cp README.md "$readme_src_tmp"
   bash ci/prepare-dockerhub-readme.sh "$readme_src_tmp" "$dockerhub_readme_out"
   rm -f "$readme_src_tmp"
-  log "Docker Hub README written to ${dockerhub_readme_out}"
+  log_info "Docker Hub README written to ${dockerhub_readme_out}"
 fi
 
 echo "[OK] Local matrix build+test complete"
