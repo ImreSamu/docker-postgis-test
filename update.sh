@@ -14,7 +14,6 @@ readonly MIN_BASH_VERSION=4
 readonly SCRIPT_NAME="${BASH_SOURCE[0]##*/}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
-readonly SCRIPT_VERSION="1.0.0"
 
 # --- Logging (color codes disabled if not a terminal) ---
 if [[ -t 2 ]]; then
@@ -30,59 +29,6 @@ log_info()  { printf '%b[INFO]%b %s\n' "$C_CYAN" "$C_RESET" "$*" >&2; }
 log_warn()  { printf '%b[WARN]%b %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
 log_error() { printf '%b[ERROR]%b %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
 die()       { log_error "$1"; exit "${2:-1}"; }
-
-log_section() {
-    local title="$1"
-    log_info "===== ${title} ====="
-}
-
-log_variant_line() {
-    local level="$1"  # info|warn|error
-    local target="$2"
-    local variant="$3"
-    local text="$4"
-
-    local prefix="${target} ${variant}"
-    case "$level" in
-        info)  log_info "${prefix} | ${text}" ;;
-        warn)  log_warn "${prefix} | ${text}" ;;
-        error) log_error "${prefix} | ${text}" ;;
-        *)     log_info "${prefix} | ${text}" ;;
-    esac
-}
-
-log_variant_cont() {
-    local level="$1"  # info|warn|error
-    local target="$2"
-    local variant="$3"
-    local text="$4"
-
-    local prefix="${target} ${variant}"
-    local pad
-    pad="$(printf '%*s' "${#prefix}" '')"
-
-    case "$level" in
-        info)  log_info "${pad} | ${text}" ;;
-        warn)  log_warn "${pad} | ${text}" ;;
-        error) log_error "${pad} | ${text}" ;;
-        *)     log_info "${pad} | ${text}" ;;
-    esac
-}
-
-log_variant_tags_output() {
-    local level="$1"  # info|warn|error
-    local target="$2"
-    local variant="$3"
-    local tags="${4:-}"
-    local output="${5:-}"
-
-    if [[ -n "$tags" ]]; then
-        log_variant_cont "$level" "$target" "$variant" "tags=\"${tags}\""
-    else
-        log_variant_cont "$level" "$target" "$variant" "tags=\"(none)\""
-    fi
-    log_variant_cont "$level" "$target" "$variant" "output=\"${output}\""
-}
 
 # --- Platform Check ---
 check_bash_version() {
@@ -110,7 +56,6 @@ Arguments:
 
 Options:
     -h, --help      Show this help message and exit
-    -v, --version   Show version information
 
 Examples:
     $SCRIPT_NAME              # Process all versions, update README.md and matrix.yml
@@ -119,17 +64,8 @@ Examples:
 EOF
 }
 
-show_version() {
-    echo "$SCRIPT_NAME version $SCRIPT_VERSION"
-}
-
 require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "Required command not found on PATH: $1"
-}
-
-install_support_scripts() {
-    local dest_dir="$1"
-    cp -p initdb-postgis.sh update-postgis.sh "$dest_dir/"
 }
 
 cd "$SCRIPT_DIR"
@@ -141,14 +77,29 @@ readonly GITHUB_REPO_BLOB_BASE="https://github.com/postgis/docker-postgis/blob/m
 # Matrix configuration for CI/CD
 readonly MATRIX_FILE="matrix.yml"
 
+# Version pattern constants for tag classification
+# Stable releases: pure semver like 3.4.0, 3.5.1
+readonly STABLE_VERSION_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+$'
+# Pre-releases: semver with alpha/beta/rc suffix like 3.6.0alpha1, 3.6.0beta2, 3.6.0rc1
+readonly PRERELEASE_VERSION_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+(alpha|beta|rc)[0-9]+$'
+# Directory names indicating test/development builds
+readonly TEST_BUILD_PATTERN='alpha|beta|rc|master'
+
+# Safety limit for GitHub API pagination.
+# PostGIS has ~1000 tags, at 100 tags/page we expect ~10 pages max.
+# Set to 12 to allow some headroom while preventing infinite loops.
+readonly MAX_GITHUB_API_PAGES=12
+
 # The following version is considered to be the 'latest' or 'alpine'.
 # Not readonly: CI/unit tests temporarily override it (see ci/test-update.sh).
 LATEST_VERSION=17-3.5
 
 readonly DEFAULT_ALPINE_SUITE='3.22'
 readonly DEFAULT_DEBIAN_SUITE='bullseye-slim'
+# Pin PostgreSQL versions to specific Debian suites for package compatibility.
+# This ensures we use Debian releases where the required PostGIS packages are available.
+# See: https://github.com/docker-library/postgres/issues/582
 declare -Ar DEBIAN_SUITE=(
-    # https://github.com/docker-library/postgres/issues/582
     [13]='bullseye-slim'
     [14]='bullseye-slim'
     [15]='bullseye-slim'
@@ -165,41 +116,41 @@ declare -ar OPTIMIZED_BUCKETS=(debian alpine test)
 # Helpers
 # ---------------------------------------------------------------------------
 
-get_postgis_deb_suffix() {
-    local majmin="$1"
-    local major="${majmin%%.*}"
-
-    if [[ ! "$major" =~ ^[0-9]+$ ]]; then
-        die "Invalid PostGIS major.minor version: $majmin"
-    fi
-
-    echo "$major"
-}
-
+# Render a Dockerfile template by substituting placeholder variables.
+#
+# Arguments:
+#   $1 - template_file: Path to template file
+#   $2 - output_file: Path to output file
+#   $@ - key=value pairs for substitution (e.g., "%%PG_MAJOR%%=17")
+#
+# Placeholders in the template use %%NAME%% format.
 render_template() {
-    local template="$1"
-    local out="$2"
+    local template_file="$1"
+    local output_file="$2"
     shift 2
 
     local -a sed_args=()
-    local kv key val
-    for kv in "$@"; do
-        key="${kv%%=*}"
-        val="${kv#*=}"
-        val="${val//\\/\\\\}"
-        val="${val//&/\\&}"
-        val="${val//|/\\|}"
-        sed_args+=("-e" "s|${key}|${val}|g")
+    local key_value_pair placeholder_key replacement_value
+    for key_value_pair in "$@"; do
+        placeholder_key="${key_value_pair%%=*}"
+        replacement_value="${key_value_pair#*=}"
+        # Escape special sed characters in replacement value
+        replacement_value="${replacement_value//\\/\\\\}"
+        replacement_value="${replacement_value//&/\\&}"
+        replacement_value="${replacement_value//|/\\|}"
+        sed_args+=("-e" "s|${placeholder_key}|${replacement_value}|g")
     done
 
-    sed "${sed_args[@]}" "$template" > "$out"
+    sed "${sed_args[@]}" "$template_file" > "$output_file"
 }
 
+# Determine which CI bucket (debian/alpine/test) a build target belongs to.
+# Test bucket is used for pre-release and development builds.
 detect_optimized_bucket() {
     local version_dir="$1"
     local variant="${2:-default}"
 
-    if [[ "$version_dir" =~ alpha|beta|rc|master ]]; then
+    if [[ "$version_dir" =~ $TEST_BUILD_PATTERN ]]; then
         echo "test"
     elif [[ "$variant" == "alpine" ]]; then
         echo "alpine"
@@ -209,32 +160,41 @@ detect_optimized_bucket() {
 }
 
 # Build Docker tag list for matrix.yml
+#
+# Arguments:
+#   $1 - postgres_version: PostgreSQL major version (e.g., "17")
+#   $2 - postgis_version: PostGIS version (e.g., "3.5")
+#   $3 - variant: "default" (Debian) or "alpine"
+#   $4 - os_label: OS identifier for tags (e.g., "bullseye", "alpine3.22")
+#   $5 - patch_version: Full PostGIS patch version (e.g., "3.5.0", "3.6.0beta1")
+#
+# Output: Space-separated list of Docker tags
 build_tags() {
-    local pg="$1"
-    local postgis="$2"
+    local postgres_version="$1"
+    local postgis_version="$2"
     local variant="$3"
     local os_label="$4"
-    local patch="$5"
-    local combo="${pg}-${postgis}"
+    local patch_version="$5"
+    local version_combo="${postgres_version}-${postgis_version}"
     local -a tags=()
-    local stable_patch_re='^[0-9]+\.[0-9]+\.[0-9]+$'
-    local prerelease_patch_re='^[0-9]+\.[0-9]+\.[0-9]+(alpha|beta|rc)[0-9]+$'
 
     if [[ "$variant" == "alpine" ]]; then
-        tags+=("${combo}-alpine")
-        tags+=("${combo}-${os_label}")
+        tags+=("${version_combo}-alpine")
+        tags+=("${version_combo}-${os_label}")
     else
-        tags+=("${combo}")
-        tags+=("${combo}-${os_label}")
+        tags+=("${version_combo}")
+        tags+=("${version_combo}-${os_label}")
     fi
 
-    # Add patch tag for stable and pre-release versions (alpha/beta/rc).
-    if [[ "$patch" =~ $stable_patch_re || "$patch" =~ $prerelease_patch_re ]]; then
-        tags+=("${pg}-${patch}-${os_label}")
+    # Add patch-level tag for stable and pre-release versions (alpha/beta/rc).
+    # This allows users to pin to specific patch versions.
+    if [[ "$patch_version" =~ $STABLE_VERSION_PATTERN || "$patch_version" =~ $PRERELEASE_VERSION_PATTERN ]]; then
+        tags+=("${postgres_version}-${patch_version}-${os_label}")
     fi
 
-    # 'latest' and 'alpine' tags are reserved for stable releases only.
-    if [[ "$combo" == "$LATEST_VERSION" && "$patch" =~ $stable_patch_re ]]; then
+    # 'latest' and 'alpine' convenience tags are reserved for stable releases only.
+    # Pre-releases should never be tagged as 'latest' to avoid surprising users.
+    if [[ "$version_combo" == "$LATEST_VERSION" && "$patch_version" =~ $STABLE_VERSION_PATTERN ]]; then
         if [[ "$variant" == "default" ]]; then
             tags+=("latest")
         elif [[ "$variant" == "alpine" ]]; then
@@ -245,41 +205,51 @@ build_tags() {
     echo "${tags[*]}"
 }
 
-# Correct version sorting
+# Sort version strings in reverse order, with stable releases before pre-releases.
+#
+# Problem: Standard version sort (sort -V) places "3.5.0" before "3.5.0beta1"
+# because it sorts character-by-character. We want stable releases (3.5.0)
+# to appear BEFORE pre-releases (3.5.0alpha1, 3.5.0beta1, 3.5.0rc1).
+#
+# Solution: Temporarily append ".9991" to stable versions (e.g., "3.5.0" -> "3.5.0.9991")
+# so they sort after pre-releases, then reverse sort, then remove the suffix.
+# This results in: 3.5.0, 3.5.0rc1, 3.5.0beta1, 3.5.0alpha1 (newest stable first).
 version_reverse_sort() {
     sed -r "s/([0-9]+\.[0-9]+\.[0-9]+$)/\1\.9991/" | sort -Vr | sed s/\.9991$//
 }
 
+# Fetch all PostGIS release tags from GitHub API.
+# Populates global: postgis_all_v3_versions (space-separated list of tags)
 fetch_postgis_versions() {
-    local REPO="postgis/postgis"
-    local PER_PAGE=100
-    local page=1
+    local github_repo="postgis/postgis"
+    local tags_per_page=100
+    local current_page=1
     postgis_all_v3_versions=""
 
     while true; do
-        local response
-        response="$(curl --fail --show-error --silent "https://api.github.com/repos/$REPO/tags?per_page=$PER_PAGE&page=$page")" || {
+        local api_response
+        api_response="$(curl --fail --show-error --silent "https://api.github.com/repos/${github_repo}/tags?per_page=${tags_per_page}&page=${current_page}")" || {
             log_warn "Failed to fetch postgis tags from api.github.com"
             return 1
         }
 
-        if echo "$response" | grep -q "API rate limit exceeded"; then
-            die "API rate limit exceeded: $response"
+        if echo "$api_response" | grep -q "API rate limit exceeded"; then
+            die "API rate limit exceeded: $api_response"
         fi
 
-        local tags count
-        tags=$(echo "$response" | jq -r '.[].name' 2>/dev/null || true)
-        count=$(echo "$tags" | sed '/^$/d' | wc -l)
-        if ((count == 0)); then
+        local fetched_tags tag_count
+        fetched_tags=$(echo "$api_response" | jq -r '.[].name' 2>/dev/null || true)
+        tag_count=$(echo "$fetched_tags" | sed '/^$/d' | wc -l)
+        if ((tag_count == 0)); then
             break
         fi
 
-        if ((page > 12)); then
-            die "Too many pages (${page}) while fetching PostGIS tags"
+        if ((current_page > MAX_GITHUB_API_PAGES)); then
+            die "Too many pages (${current_page}) while fetching PostGIS tags - possible infinite loop"
         fi
 
-        postgis_all_v3_versions+=" $tags"
-        ((page++))
+        postgis_all_v3_versions+=" $fetched_tags"
+        ((current_page++))
     done
 }
 
@@ -287,8 +257,28 @@ fetch_postgis_versions() {
 # Version resolution and recording
 # ---------------------------------------------------------------------------
 
-# Outputs (globals):
-#   postgisMajMin, postgisPackageName, postgisFullVersion, postgisMajor, postgisDocSrc
+# Resolve PostGIS package version from Debian apt repository.
+#
+# Arguments:
+#   $1 - postgres_main: PostgreSQL major version (e.g., "17")
+#   $2 - postgis_version: Requested PostGIS version (e.g., "3.5" or "master")
+#   $3 - version_list: Debian Packages file content
+#   $4 - version_dir: Version directory name (e.g., "17-3.5")
+#   $5 - suite: Debian suite name (e.g., "bullseye")
+#
+# Sets globals (output):
+#   postgisMajMin    - PostGIS major.minor (e.g., "3.5")
+#   postgisPackageName   - Debian package name (e.g., "postgresql-17-postgis-3")
+#   postgisFullVersion   - Full version from apt (e.g., "3.5.0+dfsg-1.pgdg...")
+#   postgisMajor          - PostGIS major version for package suffix (e.g., "3")
+#   postgisDocSrc     - Version string for documentation (e.g., "3.5.0")
+#
+# Sets globals (status):
+#   debian_resolve_status  - "OK" or "SKIP"
+#   debian_resolve_reason  - Reason if SKIP (e.g., "Debian package not available")
+#   debian_resolve_requested - Requested major.minor
+#   debian_resolve_found   - Found major.minor (may differ)
+#   debian_resolve_found_ver - Full version found in apt
 resolve_debian_postgis_version() {
     local postgres_main="$1"
     local postgis_version="$2"
@@ -296,18 +286,21 @@ resolve_debian_postgis_version() {
     local version_dir="$4"
     local suite="$5"
 
+    # Initialize output globals
     postgisPackageName=""
     postgisFullVersion=""
     postgisMajor=""
     postgisDocSrc=""
     postgisMajMin=""
 
+    # Initialize status globals
     debian_resolve_requested=""
     debian_resolve_found=""
     debian_resolve_found_ver=""
     debian_resolve_reason=""
     debian_resolve_status="OK"
 
+    # Master branch is built from source, not from Debian packages
     if [[ "$postgis_version" == "master" ]]; then
         postgisFullVersion="$postgis_version"
         postgisDocSrc="development: postgis, geos, proj, gdal"
@@ -315,10 +308,15 @@ resolve_debian_postgis_version() {
         return 0
     fi
 
-    postgisMajMin="$( echo "${postgis_version}" | cut -d. -f1 ).$( echo "${postgis_version}" | cut -d. -f2 )"
+    # Extract major.minor from version (e.g., "3.5" from "3.5" or "3.5.0")
+    local major minor
+    major="$(echo "${postgis_version}" | cut -d. -f1)"
+    minor="$(echo "${postgis_version}" | cut -d. -f2)"
+    postgisMajMin="${major}.${minor}"
     debian_resolve_requested="$postgisMajMin"
 
-    postgisPackageName="postgresql-${postgres_main}-postgis-$(get_postgis_deb_suffix "$postgisMajMin")"
+    # Construct Debian package name and look up version in apt repository
+    postgisPackageName="postgresql-${postgres_main}-postgis-${postgisMajMin%%.*}"
     debian_resolve_found_ver="$(echo "$version_list" | awk -F ': ' '$1 == "Package" { pkg = $2 } $1 == "Version" && pkg == "'"$postgisPackageName"'" { print $2; exit }' || true)"
     postgisFullVersion="$debian_resolve_found_ver"
 
@@ -328,11 +326,17 @@ resolve_debian_postgis_version() {
         return 0
     fi
 
-    local debianPostgisMajMin
-    debianPostgisMajMin="$( echo "${postgisFullVersion}" | cut -d. -f1 ).$( echo "${postgisFullVersion}" | cut -d. -f2 )"
-    debian_resolve_found="$debianPostgisMajMin"
-    if [[ "$debianPostgisMajMin" == "$postgisMajMin" ]]; then
-        postgisMajor="$(get_postgis_deb_suffix "$postgisMajMin")"
+    # Verify the found package matches our requested major.minor
+    # (apt might have a different version than what we're looking for)
+    local found_major found_minor found_major_minor
+    found_major="$(echo "${postgisFullVersion}" | cut -d. -f1)"
+    found_minor="$(echo "${postgisFullVersion}" | cut -d. -f2)"
+    found_major_minor="${found_major}.${found_minor}"
+    debian_resolve_found="$found_major_minor"
+
+    if [[ "$found_major_minor" == "$postgisMajMin" ]]; then
+        postgisMajor="${postgisMajMin%%.*}"
+        # Strip Debian-specific suffix (e.g., "+dfsg-1.pgdg...") for documentation
         postgisDocSrc="${postgisFullVersion%%+*}"
     else
         debian_resolve_status="SKIP"
@@ -343,43 +347,71 @@ resolve_debian_postgis_version() {
     fi
 }
 
-# Select the PostGIS source version for Alpine builds.
-# - Prefer the latest stable version (no alpha/beta/rc) for the same major.minor series.
-# - If none exists, fall back to the requested pre-release (if requested is alpha/beta/rc),
-#   otherwise fall back to the latest available tag for the series (including pre-releases).
+# Select the best PostGIS source version for Alpine builds.
+#
+# Strategy:
+# 1. Prefer the latest stable version (no alpha/beta/rc) for the same major.minor series
+# 2. If no stable exists and requested version is a pre-release, use that pre-release
+# 3. Otherwise fall back to the latest available tag for the series (including pre-releases)
+#
+# Arguments:
+#   $1 - major_minor: PostGIS major.minor (e.g., "3.6")
+#   $2 - requested_version: Version from directory name (e.g., "3.6" or "3.6.0beta1")
+#   $3 - available_versions: Space-separated list of all available tags
+#
+# Output: Selected version string (e.g., "3.6.0" or "3.6.0beta1")
 select_postgis_src_version_for_alpine() {
-    local majmin="$1"          # e.g. 3.6
-    local requested="$2"       # e.g. 3.6 (from directory) or 3.6.0beta1
-    local versions_string="$3" # space-separated list of tags
+    local major_minor="$1"
+    local requested_version="$2"
+    local available_versions="$3"
 
-    local major minor stable
-    major="${majmin%%.*}"
-    minor="${majmin#*.}"
+    local major minor
+    major="${major_minor%%.*}"
+    minor="${major_minor#*.}"
 
-    stable="$(
-        tr ' ' '\n' <<< "$versions_string" \
+    # First, try to find a stable release (no letters = no alpha/beta/rc suffix)
+    local stable_version
+    stable_version="$(
+        tr ' ' '\n' <<< "$available_versions" \
             | grep "^${major}\\.${minor}\\." \
             | grep -v '[a-zA-Z]' \
             | head -n 1 \
             || true
     )"
-    if [[ -n "$stable" ]]; then
-        echo "$stable"
+    if [[ -n "$stable_version" ]]; then
+        echo "$stable_version"
         return 0
     fi
 
-    if [[ "$requested" =~ alpha|beta|rc ]]; then
-        echo "$requested"
+    # No stable release found - check if requested is a pre-release
+    if [[ "$requested_version" =~ alpha|beta|rc ]]; then
+        echo "$requested_version"
     else
-        tr ' ' '\n' <<< "$versions_string" \
+        # Fall back to latest available (may be pre-release)
+        tr ' ' '\n' <<< "$available_versions" \
             | grep "^${major}\\.${minor}\\." \
             | head -n 1 \
             || true
     fi
 }
 
-# Outputs (globals):
-#   srcVersion, srcSha256, postgisDocSrc (updated for Alpine docs/tags)
+# Resolve PostGIS source version and SHA256 for Alpine builds.
+# Alpine builds PostGIS from source, so we need to determine the exact
+# source tag and download/verify the tarball.
+#
+# Arguments:
+#   $1 - version_dir: Version directory name (e.g., "17-3.5")
+#   $2 - postgis_version: PostGIS version from directory (e.g., "3.5" or "master")
+#
+# Requires globals:
+#   postgisMajMin - Set by resolve_debian_postgis_version()
+#   postgisFullVersion - Set by resolve_debian_postgis_version()
+#   postgis_all_v3_versions_array_string - Set by fetch_remote_state()
+#
+# Sets globals:
+#   srcVersion - PostGIS source tag (e.g., "3.5.0")
+#   srcSha256  - SHA256 of source tarball
+#   postgisDocSrc    - Updated to match Alpine source version
 resolve_alpine_postgis_version() {
     local version_dir="$1"
     local postgis_version="$2"
@@ -387,6 +419,7 @@ resolve_alpine_postgis_version() {
     srcVersion=""
     srcSha256=""
 
+    # Master branch doesn't need source resolution (built from git HEAD)
     if [[ "$postgis_version" == "master" ]]; then
         return 0
     fi
@@ -397,13 +430,15 @@ resolve_alpine_postgis_version() {
             die "Unable to resolve PostGIS source version for alpine (postgisMajMin=$postgisMajMin, requested=$postgis_version)"
         fi
     else
+        # Use Debian's resolved version, stripped of Debian-specific suffix
         srcVersion="${postgisFullVersion%%+*}"
     fi
 
+    # Check cache first to avoid re-downloading same tarball
     if [[ -n "${postgis_tarball_sha256_cache[$srcVersion]:-}" ]]; then
         srcSha256="${postgis_tarball_sha256_cache[$srcVersion]}"
     else
-        local tarball_url="https://github.com/postgis/postgis/archive/$srcVersion.tar.gz"
+        local tarball_url="https://github.com/postgis/postgis/archive/${srcVersion}.tar.gz"
         if ! srcSha256="$(curl -fsSL "$tarball_url" | sha256sum | awk '{ print $1 }')"; then
             die "Failed to download PostGIS tarball: $tarball_url"
         fi
@@ -483,13 +518,6 @@ fetch_git_hash() {
         return 0
     fi
 
-    # Validate git hash format: 40 chars (SHA-1) or 64 chars (SHA-256), hex only
-    if [[ ! "$hash" =~ ^[0-9a-fA-F]{40}$ && ! "$hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
-        log_warn "Invalid $name git hash format: $hash"
-        echo ""
-        return 0
-    fi
-
     log_info "$name git hash: ${hash:0:12}..."
     echo "$hash"
 }
@@ -532,43 +560,61 @@ postgisGitHash=""
 # multiple times when several targets resolve to the same PostGIS source tag.
 declare -A postgis_tarball_sha256_cache=()
 
+# Generate Debian Dockerfile for a PostgreSQL/PostGIS version combination.
+#
+# Arguments:
+#   $1 - version_dir: Version directory (e.g., "17-3.5")
+#   $2 - postgres_version: PostgreSQL version string (e.g., "17")
+#   $3 - postgres_main: PostgreSQL major version (e.g., "17")
+#   $4 - postgis_version: PostGIS version (e.g., "3.5" or "master")
+#   $5 - debian_suite: Debian suite name (e.g., "bullseye")
+#   $6 - boost_version: Boost library version for SFCGAL (e.g., "1.74.0")
+#
+# Requires globals: postgisFullVersion, postgisMajor, postgisMajMin,
+#                   postgisDocSrc (set by resolve_debian_postgis_version)
+#
+# Output: Generated Docker tags (space-separated)
 generate_debian() {
     local version_dir="$1"
-    local postgresVersion="$2"
+    local postgres_version="$2"
     local postgres_main="$3"
     local postgis_version="$4"
-    local suite="$5"
-    local boostVersion="$6"
+    local debian_suite="$5"
+    local boost_version="$6"
 
+    # If no Debian package available, create placeholder Dockerfile
     if [[ -z "$postgisFullVersion" ]]; then
-        echo " # placeholder Dockerfile"                                          > "$version_dir/Dockerfile"
+        echo " # placeholder Dockerfile"                                            > "$version_dir/Dockerfile"
         echo " # Debian version of postgis $postgisFullVersion is not detected!" >> "$version_dir/Dockerfile"
-        echo " # This is an autogenerated message of ./update.sh "               >> "$version_dir/Dockerfile"
+        echo " # This is an autogenerated message of ./update.sh "                 >> "$version_dir/Dockerfile"
         rm -f "$version_dir/"*.sh "$version_dir/"*.md
-        matrix_skip_comments+=("postgres: ${postgres_main}, postgis: ${postgis_version}, variant: default - Reason: placeholder (Debian ${suite} package not available)")
+        matrix_skip_comments+=("postgres: ${postgres_main}, postgis: ${postgis_version}, variant: default - Reason: placeholder (Debian ${debian_suite} package not available)")
 
-        local _postgisMinor
-        _postgisMinor="$(echo "$postgisMajMin" | cut -d. -f2)"
-        postgisFullVersion="$(echo "$postgis_all_v3_versions" | grep "^3\.${_postgisMinor}\." | grep -v '[a-zA-Z]' | version_reverse_sort | head -n 1 || true)"
+        # Fall back to latest known version for documentation purposes
+        local postgis_minor
+        postgis_minor="$(echo "$postgisMajMin" | cut -d. -f2)"
+        # Try stable version first, then any version including pre-releases
+        postgisFullVersion="$(echo "$postgis_all_v3_versions" | grep "^3\.${postgis_minor}\." | grep -v '[a-zA-Z]' | version_reverse_sort | head -n 1 || true)"
         if [[ -z "${postgisFullVersion}" ]]; then
-            postgisFullVersion="$(echo "$postgis_all_v3_versions" | grep "^3\.${_postgisMinor}\." | version_reverse_sort | head -n 1 || true)"
+            postgisFullVersion="$(echo "$postgis_all_v3_versions" | grep "^3\.${postgis_minor}\." | version_reverse_sort | head -n 1 || true)"
         fi
         postgisDocSrc="$postgisFullVersion"
         return 0
     fi
 
-    install_support_scripts "$version_dir/"
+    cp -p initdb-postgis.sh update-postgis.sh "$version_dir/"
 
-    local template
+    # Select appropriate template based on build type
+    local template_file
     if [[ "$postgis_version" == "master" ]]; then
-        template="Dockerfile.master.template"
+        template_file="Dockerfile.master.template"
     else
-        template="Dockerfile.template"
+        template_file="Dockerfile.template"
     fi
 
-    render_template "$template" "$version_dir/Dockerfile" \
+    render_template "$template_file" "$version_dir/Dockerfile" \
         "%%TXT_AUTOGENERATED%%=$AUTOGENERATED_NOTICE" \
-        "%%PG_MAJOR%%=$postgresVersion" \
+        "%%PG_MAJOR%%=$postgres_version" \
         "%%POSTGIS_MAJOR%%=$postgisMajor" \
         "%%POSTGIS_VERSION%%=$postgisFullVersion" \
         "%%POSTGIS_GIT_HASH%%=$postgisGitHash" \
@@ -577,17 +623,30 @@ generate_debian() {
         "%%PROJ_GIT_HASH%%=$projGitHash" \
         "%%GDAL_GIT_HASH%%=$gdalGitHash" \
         "%%GEOS_GIT_HASH%%=$geosGitHash" \
-        "%%BOOST_VERSION%%=$boostVersion" \
-        "%%DEBIAN_VERSION%%=$suite"
+        "%%BOOST_VERSION%%=$boost_version" \
+        "%%DEBIAN_VERSION%%=$debian_suite"
 
     local tags
-    tags="$(record_target "$version_dir" "$postgresVersion" "$postgres_main" "$postgis_version" "default" "debian:${suite}" "${suite}" "$postgisDocSrc")"
+    tags="$(record_target "$version_dir" "$postgres_version" "$postgres_main" "$postgis_version" "default" "debian:${debian_suite}" "${debian_suite}" "$postgisDocSrc")"
     echo "$tags"
 }
 
+# Generate Alpine Dockerfile for a PostgreSQL/PostGIS version combination.
+# Alpine builds PostGIS from source rather than using packages.
+#
+# Arguments:
+#   $1 - version_dir: Version directory (e.g., "17-3.5")
+#   $2 - postgres_version: PostgreSQL version string (e.g., "17")
+#   $3 - postgres_main: PostgreSQL major version (e.g., "17")
+#   $4 - postgis_version: PostGIS version (e.g., "3.5")
+#
+# Requires globals: srcVersion, srcSha256, postgisDocSrc
+#                   (set by resolve_alpine_postgis_version)
+#
+# Output: Generated Docker tags (space-separated), empty if no Alpine variant
 generate_alpine() {
     local version_dir="$1"
-    local postgresVersion="$2"
+    local postgres_version="$2"
     local postgres_main="$3"
     local postgis_version="$4"
 
@@ -596,83 +655,98 @@ generate_alpine() {
         return 0
     fi
 
-    install_support_scripts "$version_dir/$variant/"
+    cp -p initdb-postgis.sh update-postgis.sh "$version_dir/$variant/"
 
     render_template "Dockerfile.alpine.template" "$version_dir/$variant/Dockerfile" \
         "%%TXT_AUTOGENERATED%%=$AUTOGENERATED_NOTICE" \
-        "%%PG_MAJOR%%=$postgresVersion" \
+        "%%PG_MAJOR%%=$postgres_version" \
         "%%POSTGIS_VERSION%%=$srcVersion" \
         "%%POSTGIS_SHA256%%=$srcSha256"
 
     local tags
-    tags="$(record_target "$version_dir" "$postgresVersion" "$postgres_main" "$postgis_version" "alpine" "alpine:${DEFAULT_ALPINE_SUITE}" "alpine${DEFAULT_ALPINE_SUITE}" "$postgisDocSrc")"
+    tags="$(record_target "$version_dir" "$postgres_version" "$postgres_main" "$postgis_version" "alpine" "alpine:${DEFAULT_ALPINE_SUITE}" "alpine${DEFAULT_ALPINE_SUITE}" "$postgisDocSrc")"
     echo "$tags"
 }
 
-process_version() {
-    local version_dir="$1"
-    local postgresVersion postgisVersion
-    IFS=- read -r postgresVersion postgisVersion <<< "$version_dir"
-
-    log_section "Generate ${version_dir}"
-
-    local tag suite
-    tag="${DEBIAN_SUITE[$postgresVersion]:-$DEFAULT_DEBIAN_SUITE}"
-    suite="${tag%%-slim}"
-
-    if [ -z "${suitePackageList["$suite"]:+isset}" ]; then
+# Fetch and cache Debian package list for a suite.
+# Uses global cache to avoid redundant downloads.
+#
+# Arguments:
+#   $1 - suite: Debian suite name (e.g., "bullseye")
+#
+# Sets global: suitePackageList[$suite]
+fetch_suite_package_list() {
+    local suite="$1"
+    if [[ -z "${suitePackageList["$suite"]:+isset}" ]]; then
         suitePackageList["$suite"]="$(curl -fsSL "${PACKAGES_BASE}/${suite}-pgdg/main/binary-amd64/Packages.bz2" | bunzip2)"
     fi
+}
 
-    local postgresVersionMain versionList
-    postgresVersionMain="$(echo "$postgresVersion" | awk -F 'alpha|beta|rc' '{print $1}')"
-    versionList="$(echo "${suitePackageList["$suite"]}"; curl -fsSL "${PACKAGES_BASE}/${suite}-pgdg/${postgresVersionMain}/binary-amd64/Packages.bz2" | bunzip2)"
+# Process a single version directory, generating Dockerfiles for all variants.
+#
+# Arguments:
+#   $1 - version_dir: Version directory name (e.g., "17-3.5")
+#
+# This is the main entry point for processing each PostgreSQL/PostGIS combination.
+# It coordinates Debian and Alpine variant generation.
+process_version() {
+    local version_dir="$1"
 
-    local boostVersion
-    case "$suite" in
-        bullseye) boostVersion="1.74.0" ;;
-        trixie)   boostVersion="1.88.0" ;;
-        *) die "Unknown debian suite: ${suite}" ;;
+    # Parse version directory name into PostgreSQL and PostGIS versions
+    local postgres_version postgis_version
+    IFS=- read -r postgres_version postgis_version <<< "$version_dir"
+
+    log_info "===== Generate ${version_dir} ====="
+
+    # Determine Debian suite and fetch package list
+    local suite_tag debian_suite
+    suite_tag="${DEBIAN_SUITE[$postgres_version]:-$DEFAULT_DEBIAN_SUITE}"
+    debian_suite="${suite_tag%%-slim}"
+
+    fetch_suite_package_list "$debian_suite"
+
+    # Extract main PostgreSQL version (strip pre-release suffix like alpha/beta/rc)
+    local postgres_main
+    postgres_main="$(echo "$postgres_version" | awk -F 'alpha|beta|rc' '{print $1}')"
+
+    # Fetch combined package list (main + version-specific)
+    local package_list
+    package_list="$(echo "${suitePackageList["$debian_suite"]}"; curl -fsSL "${PACKAGES_BASE}/${debian_suite}-pgdg/${postgres_main}/binary-amd64/Packages.bz2" | bunzip2)"
+
+    # Get Boost version for SFCGAL (varies by Debian release)
+    local boost_version
+    case "$debian_suite" in
+        bullseye) boost_version="1.74.0" ;;
+        trixie)   boost_version="1.88.0" ;;
+        *) die "Unknown debian suite: ${debian_suite}" ;;
     esac
 
-    resolve_debian_postgis_version "$postgresVersionMain" "$postgisVersion" "$versionList" "$version_dir" "$suite"
+    # Resolve PostGIS package version from Debian repository
+    resolve_debian_postgis_version "$postgres_main" "$postgis_version" "$package_list" "$version_dir" "$debian_suite"
 
+    # --- Generate Debian variant ---
     local debian_tags=""
-    local debian_prefix_target="$version_dir"
-    local debian_prefix_variant="debian"
-    local debian_output="./${version_dir}/Dockerfile"
-
-    if [[ "$postgisVersion" == "master" ]]; then
-        debian_tags="$(generate_debian "$version_dir" "$postgresVersion" "$postgresVersionMain" "$postgisVersion" "$suite" "$boostVersion" || true)"
-        log_variant_line info "$debian_prefix_target" "$debian_prefix_variant" "status=OK suite=${tag} postgis=master source=git"
-        log_variant_tags_output info "$debian_prefix_target" "$debian_prefix_variant" "$debian_tags" "$debian_output"
+    if [[ "$postgis_version" == "master" ]]; then
+        debian_tags="$(generate_debian "$version_dir" "$postgres_version" "$postgres_main" "$postgis_version" "$debian_suite" "$boost_version" || true)"
+        log_info "${version_dir} debian | OK suite=${suite_tag} postgis=master tags=\"${debian_tags}\""
     elif [[ "${debian_resolve_status}" == "SKIP" ]]; then
-        generate_debian "$version_dir" "$postgresVersion" "$postgresVersionMain" "$postgisVersion" "$suite" "$boostVersion" >/dev/null || true
-        log_variant_line warn "$debian_prefix_target" "$debian_prefix_variant" "status=SKIP suite=${tag} pkg=${postgisPackageName}"
-
+        generate_debian "$version_dir" "$postgres_version" "$postgres_main" "$postgis_version" "$debian_suite" "$boost_version" >/dev/null || true
         if [[ "${debian_resolve_reason}" == "PostGIS major.minor mismatch" ]]; then
-            log_variant_cont warn "$debian_prefix_target" "$debian_prefix_variant" "reason=\"${debian_resolve_reason}\" requested=${debian_resolve_requested} found=${debian_resolve_found} found_ver=${debian_resolve_found_ver}"
+            log_warn "${version_dir} debian | SKIP pkg=${postgisPackageName} reason=\"${debian_resolve_reason}\" requested=${debian_resolve_requested} found=${debian_resolve_found}"
         else
-            log_variant_cont warn "$debian_prefix_target" "$debian_prefix_variant" "reason=\"${debian_resolve_reason}\" requested=${debian_resolve_requested}"
+            log_warn "${version_dir} debian | SKIP pkg=${postgisPackageName} reason=\"${debian_resolve_reason}\" requested=${debian_resolve_requested}"
         fi
-
-        log_variant_tags_output warn "$debian_prefix_target" "$debian_prefix_variant" "" "(skipped)"
     else
-        debian_tags="$(generate_debian "$version_dir" "$postgresVersion" "$postgresVersionMain" "$postgisVersion" "$suite" "$boostVersion" || true)"
-        log_variant_line info "$debian_prefix_target" "$debian_prefix_variant" "status=OK pkg=${postgisPackageName} ver=${postgisFullVersion} suite=${tag}"
-        log_variant_tags_output info "$debian_prefix_target" "$debian_prefix_variant" "$debian_tags" "$debian_output"
+        debian_tags="$(generate_debian "$version_dir" "$postgres_version" "$postgres_main" "$postgis_version" "$debian_suite" "$boost_version" || true)"
+        log_info "${version_dir} debian | OK pkg=${postgisPackageName} ver=${postgisFullVersion} tags=\"${debian_tags}\""
     fi
 
+    # --- Generate Alpine variant (if exists) ---
     if [[ -d "$version_dir/alpine" ]]; then
-        resolve_alpine_postgis_version "$version_dir" "$postgisVersion"
-        local alpine_tags=""
-        local alpine_prefix_variant="alpine"
-        local alpine_output="./${version_dir}/alpine/Dockerfile"
-        local alpine_suite="alpine${DEFAULT_ALPINE_SUITE}"
-
-        alpine_tags="$(generate_alpine "$version_dir" "$postgresVersion" "$postgresVersionMain" "$postgisVersion" || true)"
-        log_variant_line info "$version_dir" "$alpine_prefix_variant" "status=OK selected=${srcVersion} suite=${alpine_suite}"
-        log_variant_tags_output info "$version_dir" "$alpine_prefix_variant" "$alpine_tags" "$alpine_output"
+        resolve_alpine_postgis_version "$version_dir" "$postgis_version"
+        local alpine_tags
+        alpine_tags="$(generate_alpine "$version_dir" "$postgres_version" "$postgres_main" "$postgis_version" || true)"
+        log_info "${version_dir} alpine | OK src=${srcVersion} tags=\"${alpine_tags}\""
     fi
 }
 
@@ -729,6 +803,7 @@ EOF
         rm -f "$temp_file"
     else
         mv "$temp_file" "$output_file"
+        chmod 644 "$output_file"
         log_info "matrix.yml generated/updated"
     fi
     trap - RETURN
@@ -743,10 +818,6 @@ main() {
         case "$1" in
             -h|--help)
                 usage
-                exit 0
-                ;;
-            -v|--version)
-                show_version
                 exit 0
                 ;;
             --)
@@ -777,7 +848,7 @@ main() {
     if [ ${#versions[@]} -eq 0 ]; then
         update_all=true
         shopt -s nullglob
-        versions=( */Dockerfile )
+        versions=( [0-9]*/Dockerfile )
         shopt -u nullglob
     fi
     versions=( "${versions[@]%/Dockerfile}" )

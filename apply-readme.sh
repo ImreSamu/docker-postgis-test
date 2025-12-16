@@ -140,6 +140,7 @@ main() {
     log_info "[DRY RUN] Would update versions date in $readme_file"
   else
     mv "$tmp" "$readme_file"
+    chmod 644 "$readme_file"
   fi
 
   for group in "${groups[@]}"; do
@@ -168,6 +169,7 @@ main() {
       log_info "[DRY RUN] Would update ${group} section in $readme_file"
     else
       mv "$tmp" "$readme_file"
+      chmod 644 "$readme_file"
     fi
   done
 

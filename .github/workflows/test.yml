@@ -1,6 +1,8 @@
 # testing : https://github.com/postgis/docker-postgis/pull/432
 # original author: https://github.com/BowlesCR
 
+# To pin GitHub Actions versions by commit hash:  'pinact run -u --min-age 7'  ( https://github.com/suzuki-shunsuke/pinact )
+
 name: TEST - Docker PostGIS CI
 # Serialize publish-capable runs per ref so scheduled/push/manual runs queue instead of racing.
 concurrency:

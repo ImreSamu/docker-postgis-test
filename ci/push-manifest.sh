@@ -2,6 +2,8 @@
 #
 # push-manifest.sh - Create and push multi-arch Docker manifest
 #
+# Called by: .github/workflows/*.yml
+#
 set -Eeuo pipefail
 
 # --- Logging (CI-only, no colors) ---

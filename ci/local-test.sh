@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
+#
+# local-test.sh - Build and test PostGIS images locally
+#
+# Usage: ci/local-test.sh [OPTIONS] [TAG-PATTERN...]
+#
 set -Eeuo pipefail
 
-log_info()  { echo "[INFO] $*" >&2; }
-log_warn()  { echo "[WARN] $*" >&2; }
-log_error() { echo "[ERROR] $*" >&2; }
+# --- Logging (CLI with colors) ---
+if [[ -t 2 ]]; then
+    readonly C_RED='\033[0;31m' C_CYAN='\033[0;36m' C_RESET='\033[0m'
+else
+    readonly C_RED='' C_CYAN='' C_RESET=''
+fi
+log_info()  { printf '%b[INFO]%b %s\n' "$C_CYAN" "$C_RESET" "$*" >&2; }
+log_error() { printf '%b[ERROR]%b %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
 die()       { log_error "$1"; exit "${2:-1}"; }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -64,12 +74,6 @@ require_cmd() {
 require_cmd yq
 require_cmd jq
 require_cmd docker
-
-require_buildx() {
-  if ! docker buildx version >/dev/null 2>&1; then
-    die "Docker Buildx is required (docker buildx)"
-  fi
-}
 
 registry_created=false
 start_registry() {
@@ -142,13 +146,16 @@ bash ci/matrix.sh | tee "$matrix_out" >/dev/null
 
 targets_line="$(grep '^BUILD_TARGETS=' "$matrix_out" | tail -n 1 || true)"
 targets_json="${targets_line#BUILD_TARGETS=}"
+rm -f "$matrix_out"
 target_count="$(jq 'length' <<< "$targets_json" 2>/dev/null || echo 0)"
 if [[ "$target_count" -eq 0 ]]; then
   die "No build_targets found (ci/matrix.sh output missing BUILD_TARGETS)"
 fi
 
 if [[ "$with_registry" == "true" ]]; then
-  require_buildx
+  if ! docker buildx version >/dev/null 2>&1; then
+    die "Docker Buildx is required (docker buildx)"
+  fi
   start_registry
   log_info "Running local build+test+manifest on native platform"
 else
@@ -242,10 +249,7 @@ done
 if [[ "$with_registry" == "true" ]]; then
   log_info "Preparing Docker Hub README (local dry run)"
   dockerhub_readme_out="${repo_root}/_DOCKER-HUB-README.md"
-  readme_src_tmp="$(mktemp)"
-  cp README.md "$readme_src_tmp"
-  bash ci/prepare-dockerhub-readme.sh "$readme_src_tmp" "$dockerhub_readme_out"
-  rm -f "$readme_src_tmp"
+  bash ci/prepare-dockerhub-readme.sh README.md "$dockerhub_readme_out"
   log_info "Docker Hub README written to ${dockerhub_readme_out}"
 fi
 

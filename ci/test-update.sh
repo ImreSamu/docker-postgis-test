@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
+#
+# test-update.sh - Unit tests for update.sh functions
+#
+# Tests: build_tags, detect_optimized_bucket, render_template, version_reverse_sort,
+#        select_postgis_src_version_for_alpine
+#
 set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+# --- Test Framework ---
 pass_count=0
 fail_count=0
 
 fail() {
-  echo "[FAIL] $*" >&2
-  fail_count=$((fail_count + 1))
+    echo "[FAIL] $*" >&2
+    fail_count=$((fail_count + 1))
 }
 
 pass() {
-  echo "[OK] $*"
-  pass_count=$((pass_count + 1))
+    echo "[OK] $*"
+    pass_count=$((pass_count + 1))
 }
 
 assert_eq() {
@@ -65,7 +72,8 @@ test_build_tags_latest_and_alpine() {
   assert_contains_word "$tags" "18-3.6-trixie" "default tags" || return 1
   assert_contains_word "$tags" "18-3.6.1-trixie" "default patch tag" || return 1
   assert_contains_word "$tags" "latest" "default latest tag" || return 1
-  pass "build_tags: default stable adds latest"
+  assert_not_contains_word "$tags" "alpine" "default should not add alpine" || return 1
+  pass "build_tags: default stable adds latest (not alpine)"
 
   tags="$(build_tags "18" "3.6" "alpine" "alpine3.22" "3.6.1")"
   assert_contains_word "$tags" "18-3.6-alpine" "alpine tags" || return 1

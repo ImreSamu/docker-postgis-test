@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
+#
+# local-docker-clean.sh - Clean up local CI/test Docker images
+#
+# Usage: ci/local-docker-clean.sh [--dry-run]
+#
 set -Eeuo pipefail
 
-log_info()  { echo "[INFO] $*" >&2; }
-log_warn()  { echo "[WARN] $*" >&2; }
-log_error() { echo "[ERROR] $*" >&2; }
+# --- Logging (CLI with colors) ---
+if [[ -t 2 ]]; then
+    readonly C_RED='\033[0;31m' C_YELLOW='\033[0;33m' C_CYAN='\033[0;36m' C_RESET='\033[0m'
+else
+    readonly C_RED='' C_YELLOW='' C_CYAN='' C_RESET=''
+fi
+log_info()  { printf '%b[INFO]%b %s\n' "$C_CYAN" "$C_RESET" "$*" >&2; }
+log_warn()  { printf '%b[WARN]%b %s\n' "$C_YELLOW" "$C_RESET" "$*" >&2; }
+log_error() { printf '%b[ERROR]%b %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
 die()       { log_error "$1"; exit "${2:-1}"; }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

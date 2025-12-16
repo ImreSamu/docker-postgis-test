@@ -2,6 +2,9 @@
 #
 # matrix.sh - Parse matrix.yml and output build targets for CI workflows
 #
+# Called by: .github/workflows/*.yml
+# Outputs: BUILD_TARGETS and BUILD_INCLUDE for GitHub Actions matrix strategy
+#
 set -Eeuo pipefail
 
 # --- Logging (CI-only, no colors) ---
@@ -13,80 +16,108 @@ die()       { log_error "$1"; exit "${2:-1}"; }
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-matrix_file="matrix.yml"
-runner_platforms_json="${RUNNER_PLATFORMS_JSON:-}"
-output_file="${GITHUB_OUTPUT:-}"
+readonly MATRIX_FILE="matrix.yml"
 
-set_output() {
-  local line="$1"
-  if [[ -n "$output_file" ]]; then
-    echo "$line" >> "$output_file"
-  else
-    echo "$line"
-  fi
+# Environment variables (set by CI workflow)
+runner_platforms_json="${RUNNER_PLATFORMS_JSON:-}"
+github_output_file="${GITHUB_OUTPUT:-}"
+
+# Write a line to GitHub Actions output file, or stdout if not in CI
+set_github_output() {
+    local output_line="$1"
+    if [[ -n "$github_output_file" ]]; then
+        echo "$output_line" >> "$github_output_file"
+    else
+        echo "$output_line"
+    fi
 }
 
-if [[ ! -f "$matrix_file" ]]; then
-  die "$matrix_file not found in repo root"
+# --- Input Validation ---
+if [[ ! -f "$MATRIX_FILE" ]]; then
+    die "$MATRIX_FILE not found in repo root"
 fi
 
 if [[ -z "$runner_platforms_json" ]]; then
-  die "RUNNER_PLATFORMS_JSON is required"
+    die "RUNNER_PLATFORMS_JSON environment variable is required"
 fi
 
-log_info "Using $(yq --version)"
-
-# Read build_targets from matrix.yml and convert to compact JSON.
-# Supports both mikefarah/yq (v4, with `eval`) and python-yq (jq wrapper).
-if build_targets="$(yq eval '.build_targets' "$matrix_file" -o=json -I=0 2>/dev/null)"; then
-  :
-else
-  build_targets="$(yq '.build_targets' "$matrix_file" | jq -c '.')"
+# Check for correct yq version (Go-based yq by Mike Farah, not Python jq-wrapper)
+if ! command -v yq >/dev/null 2>&1; then
+    die "yq is required but not found. Install: https://github.com/mikefarah/yq"
 fi
-set_output "BUILD_TARGETS=$build_targets"
 
-# Expand build_targets × runner platforms
+yq_version="$(yq --version 2>&1 || true)"
+if [[ "$yq_version" != *"mikefarah"* && "$yq_version" != *"version v"* ]]; then
+    # Python yq shows "yq X.Y.Z" while Go yq shows "yq (https://github.com/mikefarah/yq/) version vX.Y.Z"
+    if [[ "$yq_version" =~ ^yq\ [0-9]+\.[0-9]+ ]]; then
+        die "Wrong yq installed (Python jq-wrapper detected: $yq_version). Install Go-based yq: https://github.com/mikefarah/yq"
+    fi
+fi
+
+log_info "Using $yq_version"
+
+# --- Parse Matrix File ---
+build_targets="$(yq eval '.build_targets' "$MATRIX_FILE" -o=json -I=0)"
+set_github_output "BUILD_TARGETS=$build_targets"
+
+# Expand build_targets with runner platforms to create full build matrix.
+# Each target is combined with each platform to create BUILD_INCLUDE entries.
 runner_platforms="$(jq -c '.' <<< "$runner_platforms_json")"
 build_include="$(jq -c --argjson platforms "$runner_platforms" '
-  [ .[] as $combo | $platforms[] | $combo + {"runner-platform": .} ]
+    [ .[] as $combo | $platforms[] | $combo + {"runner-platform": .} ]
 ' <<< "$build_targets")"
-set_output "BUILD_INCLUDE=$build_include"
+set_github_output "BUILD_INCLUDE=$build_include"
 
-log_info "Loaded BUILD_TARGETS with $(jq 'length' <<< "$build_targets") entries"
-log_info "Expanded BUILD_INCLUDE with $(jq 'length' <<< "$build_include") entries"
+target_count="$(jq 'length' <<< "$build_targets")"
+include_count="$(jq 'length' <<< "$build_include")"
+log_info "Loaded BUILD_TARGETS with ${target_count} entries"
+log_info "Expanded BUILD_INCLUDE with ${include_count} entries (targets x platforms)"
 
-log_info "Validating ./$matrix_file..."
+# --- Validation ---
+log_info "Validating ./${MATRIX_FILE}..."
 
-# 1. Check build_targets exists and is not empty
-build_count="$(jq 'length' <<< "$build_targets")"
-if [[ "$build_count" -eq 0 ]]; then
-  die "matrix.yml has no build_targets"
+# 1. Check build_targets is not empty
+if [[ "$target_count" -eq 0 ]]; then
+    die "matrix.yml has no build_targets"
 fi
 
-# 2. Check required non-empty fields: postgres, postgis, variant, tags
+# 2. Check required fields: postgres, postgis, variant, tags (all must be non-empty)
 invalid_entries="$(jq -c '
-  [ .[] | select(
-      .postgres == null or .postgres == "" or
-      .postgis == null or .postgis == "" or
-      .variant == null or .variant == "" or
-      .tags == null or .tags == ""
+    [ .[] | select(
+        .postgres == null or .postgres == "" or
+        .postgis == null or .postgis == "" or
+        .variant == null or .variant == "" or
+        .tags == null or .tags == ""
     )]
 ' <<< "$build_targets")"
 
-if [[ "$(jq 'length' <<< "$invalid_entries")" -gt 0 ]]; then
-  log_error "Some entries have missing or empty required fields (postgres/postgis/variant/tags):"
-  jq '.' <<< "$invalid_entries" >&2
-  exit 1
+invalid_count="$(jq 'length' <<< "$invalid_entries")"
+if [[ "$invalid_count" -gt 0 ]]; then
+    log_error "Found ${invalid_count} entries with missing or empty required fields (postgres/postgis/variant/tags):"
+    jq '.' <<< "$invalid_entries" >&2
+    exit 1
 fi
 
-# 3. Verify exactly one entry has 'latest' tag
+# 3. Verify exactly one entry has 'latest' tag (prevents accidental duplicate latest)
 latest_count="$(jq '
-  [ .[] | select(.tags | tostring | test("(^| )latest( |$)")) ] | length
+    [ .[] | select(.tags | tostring | test("(^| )latest( |$)")) ] | length
 ' <<< "$build_targets")"
+
 if [[ "$latest_count" -ne 1 ]]; then
-  log_error "Expected exactly 1 entry with 'latest' tag, found: $latest_count"
-  jq -r '.[] | select(.tags | tostring | test("(^| )latest( |$)"))' <<< "$build_targets" >&2
-  exit 1
+    log_error "Expected exactly 1 entry with 'latest' tag, found: $latest_count"
+    jq -r '.[] | select(.tags | tostring | test("(^| )latest( |$)"))' <<< "$build_targets" >&2
+    exit 1
 fi
 
-log_info "[OK] matrix.yml valid: $build_count targets, all have required fields, 1 'latest' tag"
+# 4. Verify exactly one entry has 'alpine' tag (the alpine equivalent of 'latest')
+alpine_count="$(jq '
+    [ .[] | select(.tags | tostring | test("(^| )alpine( |$)")) ] | length
+' <<< "$build_targets")"
+
+if [[ "$alpine_count" -ne 1 ]]; then
+    log_error "Expected exactly 1 entry with 'alpine' tag, found: $alpine_count"
+    jq -r '.[] | select(.tags | tostring | test("(^| )alpine( |$)"))' <<< "$build_targets" >&2
+    exit 1
+fi
+
+log_info "[OK] matrix.yml valid: ${target_count} targets, all have required fields, 1 'latest' tag, 1 'alpine' tag"

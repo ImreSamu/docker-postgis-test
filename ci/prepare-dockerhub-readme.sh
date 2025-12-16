@@ -2,6 +2,9 @@
 #
 # prepare-dockerhub-readme.sh - Prepare a README suitable for Docker Hub description
 #
+# Called by: .github/workflows/*.yml
+# Docker Hub has a 25000 character limit; this script trims if needed.
+#
 set -Eeuo pipefail
 
 # --- Logging (CI-only, no colors) ---
@@ -48,14 +51,15 @@ else
   cat "$src_readme" > "$tmp_file"
 fi
 mv "$tmp_file" "$out_readme"
+chmod 644 "$out_readme"
 
 readme_path="$out_readme"
 
-# Docker Hub README limit is 25000 chars; trim earlier to stay safe.
-limit=24600
+# Docker Hub README limit is 25000 chars; use 24600 to leave margin for warning text
+readonly DOCKERHUB_CHAR_LIMIT=24600
 size="$(wc -c < "$readme_path" | tr -d '[:space:]')"
 
-if [[ "$size" -ge "$limit" ]]; then
+if [[ "$size" -ge "$DOCKERHUB_CHAR_LIMIT" ]]; then
   repo="${GITHUB_REPO:-${GITHUB_REPOSITORY:-unknown/unknown}}"
   warning_text=$'Note: the description for this image is longer than the Hub length limit of 25000, so has been trimmed. The full description can be found at\n"https://github.com/'"${repo}"$'/README.md"'
 
@@ -64,13 +68,14 @@ if [[ "$size" -ge "$limit" ]]; then
 
   start_len="$(printf '%s' "$start_block" | wc -c | tr -d '[:space:]')"
   end_len="$(printf '%s' "$end_block" | wc -c | tr -d '[:space:]')"
-  avail=$(( limit - start_len - end_len ))
+  avail=$(( DOCKERHUB_CHAR_LIMIT - start_len - end_len ))
 
   if (( avail < 0 )); then
-    log_error "Trimming blocks exceed limit ${limit}"
+    log_error "Trimming blocks exceed limit ${DOCKERHUB_CHAR_LIMIT}"
     avail=0
   fi
 
+  # Truncate content line-by-line to fit within available space
   content_tmp="$(mktemp)"
   current=0
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -87,7 +92,9 @@ if [[ "$size" -ge "$limit" ]]; then
   printf '%s' "$start_block" > "$final_tmp"
   cat "$content_tmp" >> "$final_tmp"
   printf '%s' "$end_block" >> "$final_tmp"
+  rm -f "$content_tmp"
   mv "$final_tmp" "$readme_path"
+  chmod 644 "$readme_path"
 fi
 
 log_info "[OK] Docker Hub README prepared: $out_readme"

@@ -1,7 +1,14 @@
 # CI helper scripts
 
-This directory contains small Bash utilities used by `.github/workflows`.  
+This directory contains small Bash utilities used by `.github/workflows`.
 They keep the workflow YAML short and easier to read. All scripts are designed to be runnable locally as well, with a few prerequisites noted below.
+
+## Prerequisites
+
+- **yq**: Go-based version from https://github.com/mikefarah/yq (NOT the Python `yq` wrapper)
+- **jq**, **Docker**, **git**
+
+**Note**: Snap-installed `yq` may fail with "permission denied" due to sandbox restrictions. Use binary install instead.
 
 ## Scripts
 
@@ -11,13 +18,12 @@ Purpose: load and validate the build matrix from `matrix.yml`, and emit JSON for
 
 Functions (high level):
 - Read `.build_targets` from `matrix.yml` using `yq`.
-- Validate required fields and that exactly one target carries the `latest` tag.
+- Validate required fields and that exactly one target carries the `latest` tag and one the `alpine` tag.
 - Expand targets across runner platforms from `RUNNER_PLATFORMS_JSON`.
 - Output `BUILD_TARGETS` and `BUILD_INCLUDE` to `$GITHUB_OUTPUT` (or stdout if unset).
 
 Local notes:
-- Requires `yq` and `jq` on your PATH.
-- Set `RUNNER_PLATFORMS_JSON`, e.g.  
+- Set `RUNNER_PLATFORMS_JSON`, e.g.
   `export RUNNER_PLATFORMS_JSON='["ubuntu-24.04","ubuntu-24.04-arm"]'`
 
 ### `ci/test-image.sh`
@@ -73,7 +79,6 @@ Functions (high level):
 - No pushing, no multi‑arch manifests; strictly sequential.
 
 Local notes:
-- Requires `yq`, `jq`, and Docker.
 - Builds can be slow and will download base images.
 - To also test manifest creation locally, run with a registry:
   - `bash ci/local-test.sh --with-registry`
