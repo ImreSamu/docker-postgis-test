@@ -105,7 +105,7 @@ RUN set -ex \
 # cgal & sfcgal
 ARG CGAL_GIT_BRANCH
 ENV CGAL_GIT_BRANCH=${CGAL_GIT_BRANCH}
-ENV CGAL_GIT_HASH=67d6244bded075903f6961b393371ab22a57d138
+ENV CGAL_GIT_HASH=
 ENV SFCGAL_GIT_HASH=c763a49430032b0f36658e39ad1df45688635875
 RUN set -ex \
     && mkdir -p /usr/src \
@@ -185,7 +185,7 @@ RUN set -ex \
     && rm -fr /usr/src/geos
 
 # gdal
-ENV GDAL_GIT_HASH=87e1863da26d718e04d42db847ddaab3bcf89175
+ENV GDAL_GIT_HASH=91d3400d9a550d54e37bbe52fcce8db346c9093e
 RUN set -ex \
     && cd /usr/src \
     && git clone https://github.com/OSGeo/gdal.git \
@@ -304,6 +304,7 @@ RUN set -ex \
       libcfitsio9 \
       libfreexl1 \
       libfyba0 \
+      libgomp1 \
       libhdf5-103-1 \
       libkmlbase1 \
       libkmldom1 \
@@ -318,11 +319,11 @@ COPY --from=builder /usr/local /usr/local
 
 ARG CGAL_GIT_BRANCH
 ENV CGAL_GIT_BRANCH=${CGAL_GIT_BRANCH}
-ENV CGAL_GIT_HASH=67d6244bded075903f6961b393371ab22a57d138
+ENV CGAL_GIT_HASH=
 ENV SFCGAL_GIT_HASH=c763a49430032b0f36658e39ad1df45688635875
 ENV PROJ_GIT_HASH=9d8c13156ad961e140aaa9df474bb597a8835130
 ENV GEOS_GIT_HASH=88a987895022ff77fedad776d7835e5743208abb
-ENV GDAL_GIT_HASH=87e1863da26d718e04d42db847ddaab3bcf89175
+ENV GDAL_GIT_HASH=91d3400d9a550d54e37bbe52fcce8db346c9093e
 
 # Minimal command line test ( fail fast )
 RUN set -ex \
