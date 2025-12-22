@@ -14,7 +14,7 @@ on:
   pull_request:
   workflow_dispatch:
   schedule:
-    - cron: '15 13 * * *'
+    - cron: '15 15 * * 1'
 
 # ============================================================================
 # FOR FORKING: Modify these settings in your forked repository
